@@ -20,6 +20,10 @@
 #include <linux/usb/xhci-dbgp.h>
 #include <asm/pci_x86.h>
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+#include <asm/serial.h>
+#endif
+
 /* Simple VGA output */
 #define VGABASE		(__ISA_IO_base + 0xb8000)
 
@@ -181,7 +185,11 @@ static __init void early_serial_init(char *s)
 	}
 
 	/* Convert from baud to divisor value */
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	divisor	= BASE_BAUD / baud;
+#else
 	divisor = 115200 / baud;
+#endif
 
 	/* These will always be IO based ports */
 	serial_in = io_serial_in;

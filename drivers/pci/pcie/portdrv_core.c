@@ -6,6 +6,11 @@
  * Copyright (C) Tom Long Nguyen (tom.l.nguyen@intel.com)
  */
 
+/******************************************************************
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation.
+******************************************************************/
+
 #include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/kernel.h>
@@ -390,12 +395,29 @@ static int pm_iter(struct device *dev, void *data)
 int pcie_port_device_suspend(struct device *dev)
 {
 	size_t off = offsetof(struct pcie_port_service_driver, suspend);
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	int ret;
+	struct pci_dev *pdev = to_pci_dev(dev);
+	ret = device_for_each_child(dev, &off, pm_iter);
+	if (!ret)
+		ret = pci_save_state(pdev);
+	pci_disable_device(pdev);
+	pci_set_power_state(pdev, PCI_D3hot);
+	return ret;
+#else
 	return device_for_each_child(dev, &off, pm_iter);
+#endif
 }
 
 int pcie_port_device_resume_noirq(struct device *dev)
 {
 	size_t off = offsetof(struct pcie_port_service_driver, resume_noirq);
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	struct pci_dev *pdev = to_pci_dev(dev);
+	pci_set_power_state(pdev, PCI_D0);
+	pci_restore_state(pdev);
+	//pcie_portdrv_restore_config(pdev);
+#endif
 	return device_for_each_child(dev, &off, pm_iter);
 }
 

@@ -6,6 +6,11 @@
  * Copyright (C) Tom Long Nguyen (tom.l.nguyen@intel.com)
  */
 
+/******************************************************************
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation.
+******************************************************************/
+
 #ifndef _PORTDRV_H_
 #define _PORTDRV_H_
 
@@ -117,6 +122,9 @@ void pcie_port_service_unregister(struct pcie_port_service_driver *new);
 extern struct bus_type pcie_port_bus_type;
 int pcie_port_device_register(struct pci_dev *dev);
 #ifdef CONFIG_PM
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+int pcie_portdrv_restore_config(struct pci_dev *dev);
+#endif
 int pcie_port_device_suspend(struct device *dev);
 int pcie_port_device_resume_noirq(struct device *dev);
 int pcie_port_device_resume(struct device *dev);

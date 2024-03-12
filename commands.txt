@@ -1,0 +1,36 @@
+Original:
+ord4 0xdf9fa004 0xB
+ord4 0xC80D0000 0x03000000
+load -m 0x200000 -i a -t emmc
+bootkernel -b 0x200000 "console=ttyS0,115200 ip=static memmap=exactmap memmap=128K@128K memmap=240M@1M"
+ DOCSIS DDR Offset (Hex):    10000000
+ DOCSIS DDR Size (Hex):      10000000
+
+
+TFTP custom:
+
+ip get bootp
+ip get bootp
+ord4 0xdf9fa004 0xB
+tftp get 192.168.12.2 0x200000 bzImage
+
+ord4 0xC80D0000 0x03000000
+tftp get 192.168.100.8 0x200000 bzImage
+bootkernel -b 0x200000 "root=/dev/sda1 rw"
+
+bootkernel -b 0x200000 "console=tty0 console=ttyS0,115200 memmap=exactmap memmap=128K@128K memmap=511M@1M rootdelay=3 root=/dev/sda1"
+
+
+set DOCSIS DDR Offset to 1FFFFFFF, and size to 1, otherwise use 240MB
+bootkernel -b 0x200000 "console=ttyS0,115200 memmap=exactmap memmap=128K@128K memmap=240M@1M rootdelay=3 root=/dev/sda1"
+
+# script to load kernel from emmc
+ord4 0xC80D0000 0x03000000
+load -m 0x200000 -s 0x44C0000 -l 0x5FFFFF -t emmc
+bootkernel -b 0x200000 "root=/dev/sda1 rw"
+
+
+copy bzImage:
+scp ubuvmlenovo:/home/cocus/source/modem-kernel/a/staging/arch/x86/boot/bzImage .
+build:
+sudo mount /dev/sdb1 ../../mnt/ && sudo mkdir -p ../../mnt/lib/modules/ && sudo cp -r drivers/net/wireless/ath/ath10k/*.ko ../../mnt/lib/modules/ && sudo cp -r drivers/net/wireless/ath/ath.ko ../../mnt/lib/modules/ && sync && sudo umount ../../mnt

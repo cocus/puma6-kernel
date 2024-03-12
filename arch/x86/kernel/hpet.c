@@ -1,4 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
+
+/******************************************************************
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation.
+******************************************************************/
 #include <linux/clockchips.h>
 #include <linux/interrupt.h>
 #include <linux/export.h>
@@ -283,7 +288,20 @@ static void hpet_resume_counter(struct clocksource *cs)
 	hpet_restart_counter();
 }
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+void hpet_disable_legacy_int(void)
+{
+	unsigned int cfg = hpet_readl(HPET_CFG);
+
+	cfg &= ~HPET_CFG_LEGACY;
+	hpet_writel(cfg, HPET_CFG);
+	hpet_legacy_int_enabled = 0;
+}
+
+void hpet_enable_legacy_int(void)
+#else
 static void hpet_enable_legacy_int(void)
+#endif
 {
 	unsigned int cfg = hpet_readl(HPET_CFG);
 

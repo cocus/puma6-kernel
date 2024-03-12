@@ -25,6 +25,11 @@
  * other drivers and utilities on correctly configured systems.
  */
 
+/******************************************************************
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation.
+******************************************************************/
+
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/kernel.h>
@@ -172,6 +177,17 @@ static inline int hpet_unregister_irq_handler(irq_handler_t handler)
 {
 	return 0;
 }
+
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+static inline  void hpet_enable_legacy_int(void)
+{
+	return;
+}
+static inline  void hpet_disable_legacy_int(void)
+{
+	return;
+}
+#endif
 
 #endif
 
@@ -1008,6 +1024,10 @@ static int cmos_suspend(struct device *dev)
 
 	cmos_read_alarm(dev, &cmos->saved_wkalrm);
 
+#if defined(CONFIG_X86_INTEL_CE_GEN3) && !defined(CONFIG_HPET_EMULATE_RTC)
+	hpet_disable_legacy_int();
+#endif
+
 	dev_dbg(dev, "suspend%s, ctrl %02x\n",
 			(tmp & RTC_AIE) ? ", alarm may wake" : "",
 			tmp);
@@ -1085,6 +1105,11 @@ static int __maybe_unused cmos_resume(struct device *dev)
 	spin_lock_irq(&rtc_lock);
 	tmp = cmos->suspend_ctrl;
 	cmos->suspend_ctrl = 0;
+
+#if defined(CONFIG_X86_INTEL_CE_GEN3) && !defined(CONFIG_HPET_EMULATE_RTC)
+	hpet_enable_legacy_int();
+#endif
+
 	/* re-enable any irqs previously active */
 	if (tmp & RTC_IRQMASK) {
 		unsigned char	mask;

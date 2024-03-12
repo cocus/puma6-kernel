@@ -5,6 +5,12 @@
  * This file contains the setup_arch() code, which handles the architecture-dependent
  * parts of early kernel initialization.
  */
+
+/******************************************************************
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation.
+******************************************************************/
+
 #include <linux/console.h>
 #include <linux/crash_dump.h>
 #include <linux/dmi.h>
@@ -44,6 +50,10 @@
 #include <asm/unwind.h>
 #include <asm/vsyscall.h>
 #include <linux/vmalloc.h>
+
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+extern int set_gmac_phy_mode(int mode);
+#endif
 
 /*
  * max_low_pfn_mapped: highest directly mapped pfn < 4 GB
@@ -365,6 +375,16 @@ static void __init parse_setup_data(void)
 		case SETUP_DTB:
 			add_dtb(pa_data);
 			break;
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+		case SETUP_BOARD_TYPE:
+			intelce_set_board_type(readl(data->data));
+			break;
+#endif
+#if defined(CONFIG_E1000) && defined(CONFIG_X86_INTEL_CE_GEN3)
+		case SETUP_GMAC_PHY_MODE:
+			set_gmac_phy_mode(readl(data->data));
+			break;
+#endif
 		case SETUP_EFI:
 			parse_efi_setup(pa_data, data_len);
 			break;

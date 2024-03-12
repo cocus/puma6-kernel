@@ -5,6 +5,11 @@
  * Shared functions for accessing and configuring the MAC
  */
 
+/*******************************************************************************
+  Includes Intel Corporation's changes/modifications dated: 03/2013.
+  Changed/modified portions - Copyright @ 2013, Intel Corporation.
+*******************************************************************************/
+
 #include "e1000.h"
 
 static s32 e1000_check_downshift(struct e1000_hw *hw);
@@ -84,6 +89,11 @@ u16 e1000_igp_cable_length_table[IGP01E1000_AGC_LENGTH_TABLE_SIZE] = {
 static DEFINE_MUTEX(e1000_eeprom_lock);
 static DEFINE_SPINLOCK(e1000_phy_lock);
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+static DEFINE_SPINLOCK(gbe_cru_lock);
+unsigned long cru_irqlocal;
+#endif
+
 /**
  * e1000_set_phy_type - Set the phy type member in the hw struct.
  * @hw: Struct containing variables accessed by shared code
@@ -110,10 +120,26 @@ static s32 e1000_set_phy_type(struct e1000_hw *hw)
 		break;
 	case RTL8211B_PHY_ID:
 		hw->phy_type = e1000_phy_8211;
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+		if (hw->phy_revision == RTL8211D_PHY_REV_ID)
+			hw->phy_type = e1000_phy_8211d;
+		else if (hw->phy_revision == RTL8211E_PHY_REV_ID)
+			hw->phy_type = e1000_phy_8211e;
+#endif
 		break;
 	case RTL8201N_PHY_ID:
 		hw->phy_type = e1000_phy_8201;
 		break;
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	case RTL8201E_PHY_ID:
+		hw->phy_type = e1000_phy_8201e;
+		if (hw->phy_revision == RTL8201FR_PHY_REV_ID)
+			hw->phy_type = e1000_phy_8201fr;
+		break;
+	case LAN8720A_PHY_ID:
+		hw->phy_type = e1000_phy_lan8720a;
+		break;
+#endif
 	default:
 		/* Should never have loaded on this device */
 		hw->phy_type = e1000_phy_undefined;
@@ -441,7 +467,15 @@ s32 e1000_reset_hw(struct e1000_hw *hw)
 		/* Reset is performed on a shadow of the control register */
 		ew32(CTRL_DUP, (ctrl | E1000_CTRL_RST));
 		break;
+#ifdef CONFIG_X86_INTEL_CE_GEN3
 	case e1000_ce4100:
+		spin_lock_irqsave(&gbe_cru_lock, cru_irqlocal);
+		ndelay(1000);
+		ew32(CTRL, (er32(CTRL) | E1000_CTRL_RST));
+		ndelay(1000);
+		spin_unlock_irqrestore(&gbe_cru_lock, cru_irqlocal);
+		break;
+#endif
 	default:
 		ew32(CTRL, (ctrl | E1000_CTRL_RST));
 		break;
@@ -957,6 +991,9 @@ static s32 gbe_dhg_phy_setup(struct e1000_hw *hw)
 {
 	s32 ret_val;
 	u32 ctrl_aux;
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	u16 phy_data;
+#endif
 
 	switch (hw->phy_type) {
 	case e1000_phy_8211:
@@ -965,7 +1002,51 @@ static s32 gbe_dhg_phy_setup(struct e1000_hw *hw)
 			e_dbg("e1000_copper_link_rtl_setup failed!\n");
 			return ret_val;
 		}
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+		switch (hw->phy_mode) {
+			case FAKE_PHY_INTERNAL:
+				ctrl_aux = er32(CTL_AUX);
+				ctrl_aux |= 0x2;
+				ew32(CTL_AUX, ctrl_aux);
+				break;
+			case FAKE_PHY_EXTERNAL:
+				e1000_write_phy_reg_ex(hw, 0x1, 0xC003);
+				e1000_write_phy_reg_ex(hw, 0x0, 0x96A1); // the external switch is configured in CEFDK
+				break;
+			case REAL_PHY:
+			default:
+				break;
+		}
+#endif
 		break;
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	case e1000_phy_8211d:
+	case e1000_phy_8211e:
+		/* Set max packet length / WoL reset bit = 0 */
+		e1000_write_phy_reg(hw, 31, 0x0007);
+		e1000_write_phy_reg(hw, 30, 0x006d);
+		e1000_write_phy_reg(hw, 22, 0x9fff);
+
+		/* Set MAC Address on PHY (needed in some WoL applications) */
+		e1000_write_phy_reg(hw, 30, 0x006e);
+		e1000_write_phy_reg(hw, 21,
+			(u16) (hw->mac_addr[1] << 8 | hw->mac_addr[0]));
+		e1000_write_phy_reg(hw, 22,
+			(u16) (hw->mac_addr[3] << 8 | hw->mac_addr[2]));
+		e1000_write_phy_reg(hw, 23,
+			(u16) (hw->mac_addr[5] << 8 | hw->mac_addr[4]));
+
+		/* Switch to Page 0 */
+		e1000_write_phy_reg(hw, 31, 0x0000);
+		msleep(10);
+
+		ret_val = e1000_copper_link_rtl_setup(hw);
+		if(ret_val){
+			printk(" e1000_copper_link_rtl_setup failed!\n");
+			return ret_val;
+		}
+		break;
+#endif
 	case e1000_phy_8201:
 		/* Set RMII mode */
 		ctrl_aux = er32(CTL_AUX);
@@ -985,7 +1066,85 @@ static s32 gbe_dhg_phy_setup(struct e1000_hw *hw)
 			e_dbg("e1000_copper_link_rtl_setup failed!\n");
 			return ret_val;
 		}
+		/* RMII mode setting in 8201N PHY chip */
+		ret_val = e1000_read_phy_reg(hw, PHY_CTRL, &phy_data);
+		if (ret_val)
+			return ret_val;
+
+		phy_data |= 0x01;
+		ret_val = e1000_write_phy_reg(hw, PHY_CTRL, phy_data);
+		if (ret_val){
+			printk(" 8201N RMII mode setup failed!\n");
+		}
 		break;
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	case e1000_phy_8201e:
+		/* Set RMII mode */
+		ctrl_aux = er32(CTL_AUX);
+		ctrl_aux |= E1000_CTL_AUX_RMII;
+		ew32(CTL_AUX, ctrl_aux);
+		E1000_WRITE_FLUSH();
+		/* Disable the J/K bits requried for recieve */
+		ctrl_aux = er32(CTL_AUX);
+		ctrl_aux |= 0x4;
+		ctrl_aux &= ~0x2;
+		ew32(CTL_AUX, ctrl_aux);
+		E1000_WRITE_FLUSH();
+		ret_val = e1000_copper_link_rtl_setup(hw);
+		if(ret_val){
+			printk(" e1000_copper_link_rtl_setup failed!\n");
+			return ret_val;
+		}
+		/* RMII mode setting in 8201E PHY chip */
+		ret_val = e1000_read_phy_reg(hw, PHY_TEST_REG, &phy_data);
+		if (ret_val)
+		return ret_val;
+
+		phy_data |= RMII_MODE_SET;
+		ret_val = e1000_write_phy_reg(hw, PHY_TEST_REG, phy_data);
+		if (ret_val){
+			printk(" 8201E RMII mode setup failed!\n");
+			return ret_val;
+		}
+		break;
+	case e1000_phy_8201fr:
+		/* Set RMII mode */
+		ctrl_aux = er32(CTL_AUX);
+		ctrl_aux |= E1000_CTL_AUX_RMII;
+		ew32(CTL_AUX, ctrl_aux);
+		E1000_WRITE_FLUSH();
+		/* enable the J/K bits requried for recieve */
+		ctrl_aux = er32(CTL_AUX);
+		ctrl_aux &= ~0x4;
+		ctrl_aux &= ~0x2;
+		ew32(CTL_AUX, ctrl_aux);
+		E1000_WRITE_FLUSH();
+		ret_val = e1000_copper_link_rtl_setup(hw);
+		if(ret_val){
+			printk(" e1000_copper_link_rtl_setup failed!\n");
+			return ret_val;
+		}
+		break;
+	case e1000_phy_lan8720a:
+		/* Set RMII mode */
+		ctrl_aux = er32(CTL_AUX);
+		ctrl_aux |= E1000_CTL_AUX_RMII;
+		ew32(CTL_AUX, ctrl_aux);
+		E1000_WRITE_FLUSH();
+		/* enable RX/TX the J/K bits requried for recieve */
+		ctrl_aux = er32(CTL_AUX);
+		ctrl_aux |= 0x8;
+		ctrl_aux &= ~0x4;
+		ctrl_aux &= ~0x2;
+		ew32(CTL_AUX, ctrl_aux);
+		E1000_WRITE_FLUSH();
+		ret_val = e1000_copper_link_rtl_setup(hw);
+		if(ret_val){
+			printk(" e1000_copper_link_rtl_setup failed!\n");
+			return ret_val;
+		}
+		break;
+#endif
 	default:
 		e_dbg("Error Resetting the PHY\n");
 		return E1000_ERR_PHY_TYPE;
@@ -1323,7 +1482,12 @@ static s32 e1000_copper_link_autoneg(struct e1000_hw *hw)
 		hw->autoneg_advertised = AUTONEG_ADVERTISE_SPEED_DEFAULT;
 
 	/* IFE/RTL8201N PHY only supports 10/100 */
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	if ((hw->phy_type == e1000_phy_8201) || (hw->phy_type == e1000_phy_8201e) || \
+		(hw->phy_type == e1000_phy_8201fr) || (hw->phy_type == e1000_phy_lan8720a))
+#else
 	if (hw->phy_type == e1000_phy_8201)
+#endif
 		hw->autoneg_advertised &= AUTONEG_ADVERTISE_10_100_ALL;
 
 	e_dbg("Reconfiguring auto-neg advertisement params\n");
@@ -1470,6 +1634,9 @@ static s32 e1000_setup_copper_link(struct e1000_hw *hw)
 		if (ret_val)
 			return ret_val;
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+		hw->cegbe_is_link_up = ((phy_data & MII_SR_LINK_STATUS) != 0);
+#endif
 		if (phy_data & MII_SR_LINK_STATUS) {
 			/* Config the MAC and PHY after link is up */
 			ret_val = e1000_copper_link_postconfig(hw);
@@ -1504,11 +1671,22 @@ s32 e1000_phy_setup_autoneg(struct e1000_hw *hw)
 		return ret_val;
 
 	/* Read the MII 1000Base-T Control Register (Address 9). */
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	if ((hw->phy_type == e1000_phy_8201) || (hw->phy_type == e1000_phy_8201e) || \
+		(hw->phy_type == e1000_phy_8201fr) || (hw->phy_type == e1000_phy_lan8720a)) {
+		mii_1000t_ctrl_reg = 0;
+	} else {
+		ret_val = e1000_read_phy_reg(hw, PHY_1000T_CTRL, &mii_1000t_ctrl_reg);
+		if (ret_val)
+			return ret_val;
+	}
+#else
 	ret_val = e1000_read_phy_reg(hw, PHY_1000T_CTRL, &mii_1000t_ctrl_reg);
 	if (ret_val)
 		return ret_val;
 	else if (hw->phy_type == e1000_phy_8201)
 		mii_1000t_ctrl_reg &= ~REG9_SPEED_MASK;
+#endif
 
 	/* Need to parse both autoneg_advertised and fc and set up
 	 * the appropriate PHY registers.  First we will parse for
@@ -1622,7 +1800,12 @@ s32 e1000_phy_setup_autoneg(struct e1000_hw *hw)
 
 	e_dbg("Auto-Neg Advertising %x\n", mii_autoneg_adv_reg);
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	if ((hw->phy_type == e1000_phy_8201) || (hw->phy_type == e1000_phy_8201e)|| \
+		(hw->phy_type == e1000_phy_8201fr) || (hw->phy_type == e1000_phy_lan8720a)) {
+#else
 	if (hw->phy_type == e1000_phy_8201) {
+#endif
 		mii_1000t_ctrl_reg = 0;
 	} else {
 		ret_val = e1000_write_phy_reg(hw, PHY_1000T_CTRL,
@@ -1940,6 +2123,24 @@ static s32 e1000_config_mac_to_phy(struct e1000_hw *hw)
 
 		e1000_config_collision_dist(hw);
 		break;
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	case e1000_phy_8201e:
+	case e1000_phy_8201fr:
+	case e1000_phy_lan8720a:
+			   ret_val = e1000_read_phy_reg(hw, PHY_CTRL, &phy_data);
+			   if (ret_val)
+				   return ret_val;
+			   if (phy_data & RTL_PHY_CTRL_FD)
+				   ctrl |= E1000_CTRL_FD;
+			   else
+				   ctrl &= ~E1000_CTRL_FD;
+			   if (phy_data & RTL_PHY_CTRL_SPD_100)
+				   ctrl |= E1000_CTRL_SPD_100;
+			   else
+				   ctrl |= E1000_CTRL_SPD_10;
+			   e1000_config_collision_dist(hw);
+			   break;
+#endif
 	default:
 		/* Set up duplex in the Device Control and Transmit Control
 		 * registers depending on negotiated values.
@@ -1948,6 +2149,10 @@ static s32 e1000_config_mac_to_phy(struct e1000_hw *hw)
 					     &phy_data);
 		if (ret_val)
 			return ret_val;
+
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+		hw->cegbe_is_link_up = (phy_data & MII_SR_LINK_STATUS) != 0;
+#endif
 
 		if (phy_data & M88E1000_PSSR_DPLX)
 			ctrl |= E1000_CTRL_FD;
@@ -2780,6 +2985,55 @@ static u16 e1000_shift_in_mdi_bits(struct e1000_hw *hw)
 	return data;
 }
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+static s32 e1000_read_phy_reg_fake(struct e1000_hw *hw, u32 reg_addr, u16 *phy_data)
+{
+	switch (reg_addr) {
+	case 0x00:
+		*phy_data = 0x3100;
+		break;
+	case 0x01:
+		*phy_data = 0x796d;
+		break;
+	case 0x02:
+		*phy_data = 0x001C;
+		break;
+	case 0x03:
+		*phy_data = 0xC912;
+		break;
+	case 0x04:
+		*phy_data = 0x05E1;
+		break;
+	case 0x05:
+		*phy_data = 0x01E0;
+		break;
+	case 0x06:
+		*phy_data = 0x0004;
+		break;
+	case 0x07:
+		*phy_data = 0x2001;
+		break;
+	case 0x09:
+		*phy_data = 0x0300;
+		break;
+	case 0x0A:
+		*phy_data = 0x3C00;
+		break;
+	case 0x0F:
+		*phy_data = 0x3000;
+		break;
+	case 0x11:
+		*phy_data = 0xAC00;
+		break;
+	default:
+		*phy_data = 0x0000;
+		break;
+	}
+
+	return E1000_SUCCESS;
+}
+#endif
+
 /**
  * e1000_read_phy_reg - read a phy register
  * @hw: Struct containing variables accessed by shared code
@@ -2793,6 +3047,11 @@ s32 e1000_read_phy_reg(struct e1000_hw *hw, u32 reg_addr, u16 *phy_data)
 {
 	u32 ret_val;
 	unsigned long flags;
+
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	if(hw->phy_mode != REAL_PHY)
+		return e1000_read_phy_reg_fake(hw, reg_addr, phy_data);
+#endif
 
 	spin_lock_irqsave(&e1000_phy_lock, flags);
 
@@ -2930,6 +3189,11 @@ s32 e1000_write_phy_reg(struct e1000_hw *hw, u32 reg_addr, u16 phy_data)
 {
 	u32 ret_val;
 	unsigned long flags;
+
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	if(hw->phy_mode != REAL_PHY)
+		return E1000_SUCCESS;
+#endif
 
 	spin_lock_irqsave(&e1000_phy_lock, flags);
 
@@ -3179,9 +3443,18 @@ static s32 e1000_detect_gig_phy(struct e1000_hw *hw)
 			match = true;
 		break;
 	case e1000_ce4100:
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+		if ((hw->phy_id == RTL8211B_PHY_ID) ||
+		    (hw->phy_id == RTL8201N_PHY_ID) ||
+		    (hw->phy_id == RTL8201E_PHY_ID) ||
+		    (hw->phy_id == LAN8720A_PHY_ID) ||
+		    (hw->phy_id == RTL8201FR_PHY_ID) ||
+		    (hw->phy_id == M88E1118_E_PHY_ID))
+#else
 		if ((hw->phy_id == RTL8211B_PHY_ID) ||
 		    (hw->phy_id == RTL8201N_PHY_ID) ||
 		    (hw->phy_id == M88E1118_E_PHY_ID))
+#endif
 			match = true;
 		break;
 	case e1000_82541:
@@ -3423,8 +3696,18 @@ s32 e1000_phy_get_info(struct e1000_hw *hw, struct e1000_phy_info *phy_info)
 
 	if (hw->phy_type == e1000_phy_igp)
 		return e1000_phy_igp_get_info(hw, phy_info);
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	else if ((hw->phy_type == e1000_phy_8211) ||
+			(hw->phy_type == e1000_phy_8201e) ||
+			(hw->phy_type == e1000_phy_lan8720a) ||
+			(hw->phy_type == e1000_phy_8201fr) ||
+			(hw->phy_type == e1000_phy_8211d) ||
+			(hw->phy_type == e1000_phy_8211e) ||
+			(hw->phy_type == e1000_phy_8201))
+#else
 	else if ((hw->phy_type == e1000_phy_8211) ||
 		 (hw->phy_type == e1000_phy_8201))
+#endif
 		return E1000_SUCCESS;
 	else
 		return e1000_phy_m88_get_info(hw, phy_info);
@@ -3450,9 +3733,12 @@ s32 e1000_validate_mdi_setting(struct e1000_hw *hw)
 s32 e1000_init_eeprom_params(struct e1000_hw *hw)
 {
 	struct e1000_eeprom_info *eeprom = &hw->eeprom;
-	u32 eecd = er32(EECD);
+	u32 eecd = 0;
 	s32 ret_val = E1000_SUCCESS;
 	u16 eeprom_size;
+
+	if (hw->mac_type != e1000_ce4100)
+		eecd = er32(EECD);
 
 	switch (hw->mac_type) {
 	case e1000_82542_rev2_0:
@@ -3508,6 +3794,10 @@ s32 e1000_init_eeprom_params(struct e1000_hw *hw)
 				eeprom->address_bits = 6;
 			}
 		}
+		break;
+	case e1000_ce4100:
+		eeprom->type = e1000_eeprom_flash;
+		eeprom->word_size = EEPROM_CE4100_FAKE_LENGTH / 2;
 		break;
 	default:
 		break;
@@ -3857,7 +4147,6 @@ static s32 e1000_spi_eeprom_ready(struct e1000_hw *hw)
 s32 e1000_read_eeprom(struct e1000_hw *hw, u16 offset, u16 words, u16 *data)
 {
 	s32 ret;
-
 	mutex_lock(&e1000_eeprom_lock);
 	ret = e1000_do_read_eeprom(hw, offset, words, data);
 	mutex_unlock(&e1000_eeprom_lock);
@@ -3870,12 +4159,6 @@ static s32 e1000_do_read_eeprom(struct e1000_hw *hw, u16 offset, u16 words,
 	struct e1000_eeprom_info *eeprom = &hw->eeprom;
 	u32 i = 0;
 
-	if (hw->mac_type == e1000_ce4100) {
-		GBE_CONFIG_FLASH_READ(GBE_CONFIG_BASE_VIRT, offset, words,
-				      data);
-		return E1000_SUCCESS;
-	}
-
 	/* A check for invalid values:  offset too large, too many words, and
 	 * not enough words.
 	 */
@@ -3885,6 +4168,15 @@ static s32 e1000_do_read_eeprom(struct e1000_hw *hw, u16 offset, u16 words,
 		e_dbg("\"words\" parameter out of bounds. Words = %d,"
 		      "size = %d\n", offset, eeprom->word_size);
 		return -E1000_ERR_EEPROM;
+	}
+
+	if (hw->mac_type == e1000_ce4100) {
+		volatile void __iomem *addr = hw->ce4100_gbe_config_base_virt;
+		addr += offset * 2;
+		for (i = 0; i < words; i++) {
+			data[i] = readw(addr + i);
+		}
+		return E1000_SUCCESS;
 	}
 
 	/* EEPROM's that don't use EERD to read require us to bit-bang the SPI
@@ -4042,6 +4334,8 @@ static s32 e1000_do_write_eeprom(struct e1000_hw *hw, u16 offset, u16 words,
 {
 	struct e1000_eeprom_info *eeprom = &hw->eeprom;
 	s32 status = 0;
+
+	return -E1000_ERR_EEPROM;
 
 	if (hw->mac_type == e1000_ce4100) {
 		GBE_CONFIG_FLASH_WRITE(GBE_CONFIG_BASE_VIRT, offset, words,
@@ -4434,7 +4728,7 @@ static s32 e1000_id_led_init(struct e1000_hw *hw)
 	u16 eeprom_data, i, temp;
 	const u16 led_mask = 0x0F;
 
-	if (hw->mac_type < e1000_82540) {
+	if (hw->mac_type < e1000_82540 || hw->mac_type == e1000_ce4100) {
 		/* Nothing to do */
 		return E1000_SUCCESS;
 	}

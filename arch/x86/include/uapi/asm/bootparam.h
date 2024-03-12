@@ -1,4 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
+/******************************************************************
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation.
+******************************************************************/
 #ifndef _ASM_X86_BOOTPARAM_H
 #define _ASM_X86_BOOTPARAM_H
 
@@ -10,6 +14,11 @@
 #define SETUP_EFI			4
 #define SETUP_APPLE_PROPERTIES		5
 #define SETUP_JAILHOUSE			6
+
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+#define SETUP_BOARD_TYPE          (0x1000)
+#define SETUP_GMAC_PHY_MODE		  (0x1001)
+#endif
 
 #define SETUP_INDIRECT			(1<<31)
 

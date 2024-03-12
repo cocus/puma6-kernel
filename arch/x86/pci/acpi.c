@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0
+
+/******************************************************************
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation.
+******************************************************************/
+
 #include <linux/pci.h>
 #include <linux/acpi.h>
 #include <linux/init.h>
@@ -19,7 +25,17 @@ struct pci_root_info {
 #endif
 };
 
+
+/*
+* The following code is for Intel Media SOC SMP support. Since kernel can not get a correct ACPI data from CEFDK,
+* thus by default we force to ignore host bridge windows from ACPI
+*/
+#if defined(CONFIG_X86_INTEL_CE_GEN3) && defined(CONFIG_SMP)
+static bool pci_use_crs = false;
+#else
 static bool pci_use_crs = true;
+#endif
+
 static bool pci_ignore_seg = false;
 
 static int __init set_use_crs(const struct dmi_system_id *id)

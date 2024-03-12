@@ -321,6 +321,9 @@ static void sdhci_init(struct sdhci_host *host, int soft)
 {
 	struct mmc_host *mmc = host->mmc;
 	unsigned long flags;
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	u32 aep_int;
+#endif
 
 	if (soft)
 		sdhci_do_reset(host, SDHCI_RESET_CMD | SDHCI_RESET_DATA);
@@ -336,6 +339,14 @@ static void sdhci_init(struct sdhci_host *host, int soft)
 
 	host->cqe_on = false;
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	if (host->aep_enabled) {
+		/* Enable AEP to Atom interrupt*/
+		aep_int = sdhci_readl(host, PV2ATOM_SW_INT);
+		aep_int |= EMMC_SW_INT | EMMC_SW_INT_EN | ATOM_DRBL_INT_EN;
+		sdhci_writel(host, aep_int, PV2ATOM_SW_INT);
+	}
+#endif
 	if (soft) {
 		/* force clock reconfiguration */
 		host->clock = 0;
@@ -950,7 +961,10 @@ static u8 sdhci_calc_timeout(struct sdhci_host *host, struct mmc_command *cmd,
 	/* Unspecified timeout, assume max */
 	if (!data && !cmd->busy_timeout)
 		return 0xE;
-
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	if (!data)
+		return 0xE;
+#endif
 	/* timeout in us */
 	target_timeout = sdhci_target_timeout(host, cmd, data);
 
@@ -1058,6 +1072,13 @@ static void sdhci_initialize_data(struct sdhci_host *host,
 static inline void sdhci_set_block_info(struct sdhci_host *host,
 					struct mmc_data *data)
 {
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	if (host->aep_enabled) {
+		sdhci_writel(host, (data->blocks << 16) |
+			SDHCI_MAKE_BLKSZ(7, data->blksz), SDHCI_BLOCK_SIZE);
+		return;
+	}
+#endif // CONFIG_X86_INTEL_CE_GEN3
 	/* Set the DMA boundary value and block size */
 	sdhci_writew(host,
 		     SDHCI_MAKE_BLKSZ(host->sdma_boundary, data->blksz),
@@ -1079,6 +1100,18 @@ static inline void sdhci_set_block_info(struct sdhci_host *host,
 static void sdhci_prepare_data(struct sdhci_host *host, struct mmc_command *cmd)
 {
 	struct mmc_data *data = cmd->data;
+
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	u8 count;
+	bool too_big = false;
+
+	if (data || (cmd->flags & MMC_RSP_BUSY)) {
+		count = sdhci_calc_timeout(host, cmd, &too_big);
+		if (host->aep_enabled)
+			count *= 2;
+		sdhci_writeb(host, count, SDHCI_TIMEOUT_CONTROL);
+	}
+#endif
 
 	sdhci_initialize_data(host, data);
 
@@ -1663,6 +1696,13 @@ static bool sdhci_send_command(struct sdhci_host *host, struct mmc_command *cmd)
 	    cmd->opcode == MMC_SEND_TUNING_BLOCK_HS200)
 		flags |= SDHCI_CMD_DATA;
 
+
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	if (host->aep_enabled)
+	/* Wait max 50 ms */
+		timeout = 50;
+	else
+#endif
 	timeout = jiffies;
 	if (host->data_timeout)
 		timeout += nsecs_to_jiffies(host->data_timeout);
@@ -1848,6 +1888,7 @@ u16 sdhci_calc_clk(struct sdhci_host *host, unsigned int clock,
 	u16 clk = 0;
 	bool switch_base_clk = false;
 
+	//if (host->aep_enabled)
 	if (host->version >= SDHCI_SPEC_300) {
 		if (host->preset_enabled) {
 			u16 pre_val;
@@ -3196,7 +3237,19 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask, u32 *intmask_p)
 		sdhci_dumpregs(host);
 		return;
 	}
-
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	/* Manually return timeout to CMD8(SD_SEND_IF_COND) and CMD5(SD_IO_SEND_OP_COND),
+	 * as AEP doesn't support them
+	 */
+	if (host->aep_enabled) {
+		if ((host->cmd->opcode == 8) && (host->cmd->flags == (MMC_RSP_SPI_R7 |
+			MMC_RSP_R7 | MMC_CMD_BCR)))
+			host->cmd->error = -ETIMEDOUT;
+		else if ((host->cmd->opcode == 5) && (host->cmd->flags == (MMC_RSP_SPI_R4 |
+			MMC_RSP_R4 | MMC_CMD_BCR)))
+			host->cmd->error = -ETIMEDOUT;
+	}
+#endif
 	if (intmask & (SDHCI_INT_TIMEOUT | SDHCI_INT_CRC |
 		       SDHCI_INT_END_BIT | SDHCI_INT_INDEX)) {
 		if (intmask & SDHCI_INT_TIMEOUT)
@@ -3410,8 +3463,46 @@ static irqreturn_t sdhci_irq(int irq, void *dev_id)
 	u32 intmask, mask, unexpected = 0;
 	int max_loops = 16;
 	int i;
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	u32 aep_int;
+#endif
+
+#if (defined(CONFIG_X86_INTEL_CE_GEN3) || defined(CONFIG_X86_INTEL_CE_GEN3)) && defined(CONFIG_HW_MUTEXES)
+		/* eMMC card interrupt can be classified to:
+		* 1, Insert/Remove interrupt
+		* 2, Data/Command Interrupt
+		* 3, Unexpected error interrupt
+		* Interrupt type of 1 & 3 won't happen in Intel CE2600 platform
+		* It's assumed that interrupt happens only when a task owns
+		* HW Mutex
+		*/
+		if (host->flags & SDHCI_SUPPORT_HW_MUTEX) {
+			if (!EMMC_HW_MUTEX_IS_LOCKED(host->mmc))
+            {
+                printk(KERN_ERR "%s: Got MMC interrupt, although the IRQ is disabled!\n",mmc_hostname(host->mmc));
+                /* Should never get here:
+                   If not holding the HW mutex, then the IRQ is disabled
+                */
+                return IRQ_NONE;
+            }
+		}
+#endif
 
 	spin_lock(&host->lock);
+
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	/* Check if it's an AEP interrupt */
+	if (host->aep_enabled) {
+		aep_int = sdhci_readl(host, PV2ATOM_SW_INT);
+		if (aep_int & EMMC_SW_INT) {
+			/* W1C */
+			sdhci_writel(host, aep_int, PV2ATOM_SW_INT);
+		} else {
+			result = IRQ_NONE;
+			goto out;
+		}
+	}
+#endif
 
 	if (host->runtime_suspended) {
 		spin_unlock(&host->lock);
@@ -3419,6 +3510,7 @@ static irqreturn_t sdhci_irq(int irq, void *dev_id)
 	}
 
 	intmask = sdhci_readl(host, SDHCI_INT_STATUS);
+
 	if (!intmask || intmask == 0xffffffff) {
 		result = IRQ_NONE;
 		goto out;
@@ -3647,6 +3739,11 @@ static void sdhci_disable_irq_wakeups(struct sdhci_host *host)
 
 int sdhci_suspend_host(struct sdhci_host *host)
 {
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	if (host->quirks & SDHCI_QUIRK_NO_SUSPEND)
+	return 0;
+#endif
+
 	sdhci_disable_card_detection(host);
 
 	mmc_retune_timer_stop(host->mmc);
@@ -3668,6 +3765,11 @@ int sdhci_resume_host(struct sdhci_host *host)
 {
 	struct mmc_host *mmc = host->mmc;
 	int ret = 0;
+
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	if (host->quirks & SDHCI_QUIRK_NO_SUSPEND)
+		return 0;
+#endif
 
 	if (host->flags & (SDHCI_USE_SDMA | SDHCI_USE_ADMA)) {
 		if (host->ops->enable_dma)
@@ -4138,6 +4240,11 @@ int sdhci_setup_host(struct sdhci_host *host)
 		       mmc_hostname(mmc), host->version);
 	}
 
+#if defined(CONFIG_X86_INTEL_CE_GEN3) && defined(CONFIG_HW_MUTEXES)
+	if(host->flags & SDHCI_SUPPORT_HW_MUTEX)
+		host->caps |= SDHCI_CAN_VDD_330;
+#endif
+
 	if (host->quirks & SDHCI_QUIRK_FORCE_DMA)
 		host->flags |= SDHCI_USE_SDMA;
 	else if (!(host->caps & SDHCI_CAN_DO_SDMA))
@@ -4363,13 +4470,27 @@ int sdhci_setup_host(struct sdhci_host *host)
 	 * won't assume 8-bit width for hosts without that CAP.
 	 */
 	if (!(host->quirks & SDHCI_QUIRK_FORCE_1_BIT_DATA))
+#if !defined(CONFIG_X86_INTEL_CE_GEN3) && !defined(CONFIG_X86_INTEL_CE_GEN3)
 		mmc->caps |= MMC_CAP_4_BIT_DATA;
+#else
+		mmc->caps |= MMC_CAP_4_BIT_DATA | MMC_CAP_8_BIT_DATA;
+#endif
 
 	if (host->quirks2 & SDHCI_QUIRK2_HOST_NO_CMD23)
 		mmc->caps &= ~MMC_CAP_CMD23;
 
 	if (host->caps & SDHCI_CAN_DO_HISPD)
 		mmc->caps |= MMC_CAP_SD_HIGHSPEED | MMC_CAP_MMC_HIGHSPEED;
+
+#if defined(CONFIG_X86_INTEL_CE_GEN3) || defined(CONFIG_X86_INTEL_CE_GEN3)
+	if(host->flags & SDHCI_SUPPORT_DDR)
+		mmc->caps |= MMC_CAP_1_8V_DDR;
+
+#if defined(CONFIG_X86_INTEL_CE_GEN3)
+   //printk("[PowerOn] sdhci_add_host() : host->caps = MMC_CAP_NONREMOVABLE \n");
+    mmc->caps |= MMC_CAP_NONREMOVABLE; /* This add support of unsafe resume - for eMMC FW upgrade */
+#endif
+#endif
 
 	if ((host->quirks & SDHCI_QUIRK_BROKEN_CARD_DETECTION) &&
 	    mmc_card_is_removable(mmc) &&

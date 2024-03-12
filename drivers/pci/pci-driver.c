@@ -4,6 +4,11 @@
  * (C) Copyright 2007 Novell Inc.
  */
 
+/******************************************************************
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation.
+******************************************************************/
+
 #include <linux/pci.h>
 #include <linux/module.h>
 #include <linux/init.h>
@@ -626,6 +631,10 @@ static int pci_legacy_resume(struct device *dev)
 
 static void pci_pm_default_suspend(struct pci_dev *pci_dev)
 {
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	if (!pci_dev->state_saved)
+		pci_save_state(pci_dev);
+#endif
 	/* Disable non-bridge devices without PM support */
 	if (!pci_has_subordinate(pci_dev))
 		pci_disable_enabled_device(pci_dev);
@@ -796,6 +805,9 @@ static int pci_pm_suspend_noirq(struct device *dev)
 		return pci_legacy_suspend_late(dev, PMSG_SUSPEND);
 
 	if (!pm) {
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+		if (!pci_dev->state_saved)
+#endif
 		pci_save_state(pci_dev);
 		goto Fixup;
 	}

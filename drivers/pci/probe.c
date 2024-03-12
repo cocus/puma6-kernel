@@ -3,6 +3,11 @@
  * PCI detection and setup code
  */
 
+/******************************************************************
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation.
+******************************************************************/
+
 #include <linux/kernel.h>
 #include <linux/delay.h>
 #include <linux/init.h>
@@ -178,11 +183,14 @@ int __pci_read_base(struct pci_dev *dev, enum pci_bar_type type,
 {
 	u32 l = 0, sz = 0, mask;
 	u64 l64, sz64, mask64;
+#ifndef CONFIG_X86_INTEL_CE_GEN3
 	u16 orig_cmd;
+#endif
 	struct pci_bus_region region, inverted_region;
 
 	mask = type ? PCI_ROM_ADDRESS_MASK : ~0;
 
+#ifndef CONFIG_X86_INTEL_CE_GEN3
 	/* No printks while decoding is disabled! */
 	if (!dev->mmio_always_on) {
 		pci_read_config_word(dev, PCI_COMMAND, &orig_cmd);
@@ -191,6 +199,7 @@ int __pci_read_base(struct pci_dev *dev, enum pci_bar_type type,
 				orig_cmd & ~PCI_COMMAND_DECODE_ENABLE);
 		}
 	}
+#endif
 
 	res->name = pci_name(dev);
 
@@ -246,8 +255,10 @@ int __pci_read_base(struct pci_dev *dev, enum pci_bar_type type,
 		mask64 |= ((u64)~0 << 32);
 	}
 
+#ifndef CONFIG_X86_INTEL_CE_GEN3
 	if (!dev->mmio_always_on && (orig_cmd & PCI_COMMAND_DECODE_ENABLE))
 		pci_write_config_word(dev, PCI_COMMAND, orig_cmd);
+#endif
 
 	if (!sz64)
 		goto fail;

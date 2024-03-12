@@ -1671,8 +1671,13 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 	if (!oldcard) {
 		/* Read extended CSD. */
 		err = mmc_read_ext_csd(card);
-		if (err)
+		if (err) {
+#ifdef CONFIG_X86_INTEL_CE_GEN3 
+            /* WA for eMMC errors (CRC erorr interrupt) */ 
+            host->caps |= MMC_CAP_NEEDS_POLL;
+#endif
 			goto free_card;
+		}
 
 		/*
 		 * If doing byte addressing, check if required to do sector

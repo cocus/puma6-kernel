@@ -97,8 +97,11 @@ static void scroll(void)
 #define LSR             5       /*  Line Status               */
 static void serial_putchar(int ch)
 {
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	unsigned timeout = 0x8fffff;
+#else
 	unsigned timeout = 0xffff;
-
+#endif
 	while ((inb(early_serial_base + LSR) & XMTRDY) == 0 && --timeout)
 		cpu_relax();
 

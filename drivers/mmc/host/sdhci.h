@@ -199,6 +199,19 @@
 #define  SDHCI_CTRL_64BIT_ADDR		0x2000
 #define  SDHCI_CTRL_PRESET_VAL_ENABLE	0x8000
 
+
+#if defined(CONFIG_X86_INTEL_CE_GEN3)
+/* AEP registers */
+#define  PV_CONTROL		0
+#define  PV_CNTL_AEP_EN		(1 << 0)
+
+#define  PV2ATOM_SW_INT		0x410
+#define  EMMC_SW_INT		(1 << 0)
+#define  EMMC_SW_INT_EN		(1 << 1)
+#define  ATOM_DRBL_INT_EN	(1 << 2)
+
+#endif // defined(CONFIG_X86_INTEL_CE_GEN3)
+
 #define SDHCI_CAPABILITIES	0x40
 #define  SDHCI_TIMEOUT_CLK_MASK		GENMASK(5, 0)
 #define  SDHCI_TIMEOUT_CLK_UNIT	0x00000080
@@ -473,7 +486,10 @@ struct sdhci_host {
  * block count.
  */
 #define SDHCI_QUIRK2_USE_32BIT_BLK_CNT			(1<<18)
-
+#if defined(CONFIG_X86_INTEL_CE_GEN3)
+/* SDHCI could not suspend in CE2600 platform */	
+#define SDHCI_QUIRK_NO_SUSPEND                   (1<<31)
+#endif
 	int irq;		/* Device IRQ */
 	void __iomem *ioaddr;	/* Mapped address */
 	phys_addr_t mapbase;	/* physical address base */
@@ -510,6 +526,16 @@ struct sdhci_host {
 #define SDHCI_SIGNALING_180	(1<<15)	/* Host is capable of 1.8V signaling */
 #define SDHCI_SIGNALING_120	(1<<16)	/* Host is capable of 1.2V signaling */
 
+#if defined(CONFIG_X86_INTEL_CE_GEN3) || defined(CONFIG_ARCH_GEN3_MMC)
+#define SDHCI_SUPPORT_DDR	(1<<4)	/* Support DDR */
+#ifdef CONFIG_HW_MUTEXES
+/* Two or more processors access the controller, HW Mutex is necessary to avoid confliction*/
+#define SDHCI_SUPPORT_HW_MUTEX	(1<<5)		
+#define SDHCI_USE_AEP	    (1<<6)	/* Host Driver works in AEP mode*/
+#endif
+	void __iomem *aep_base;	/* AEP mapped address */
+	bool aep_enabled;
+#endif
 	unsigned int version;	/* SDHCI spec. version */
 
 	unsigned int max_clk;	/* Max possible freq (MHz) */
