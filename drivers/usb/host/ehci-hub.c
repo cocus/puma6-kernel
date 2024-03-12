@@ -1236,6 +1236,25 @@ int ehci_hub_control(
 				temp |= PORT_RESET;
 				temp &= ~PORT_PE;
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+				/* 20131028 AVM/WK USB Tricky Enum Workaround */
+				if (hostpc_reg) {
+					//reset starts
+					ehci_writel(ehci, temp, status_reg);
+
+					spin_unlock_irqrestore(&ehci->lock, flags);
+					msleep(10);//USB reset for 10 ms
+					spin_lock_irqsave(&ehci->lock, flags);
+
+					temp1 = ehci_readl(ehci, hostpc_reg);
+					ehci_writel(ehci, temp1 | HOSTPC_PHCD, hostpc_reg);
+
+					udelay(220); //USB suspend for 220 us 
+
+					ehci_writel(ehci, temp1 & ~ HOSTPC_PHCD, hostpc_reg);
+					// reset continues
+				}
+#endif
 				/*
 				 * caller must wait, then call GetPortStatus
 				 * usb 2.0 spec says 50 ms resets on root

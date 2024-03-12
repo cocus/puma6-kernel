@@ -24,6 +24,8 @@
 
 #define RTL821x_INSR				0x13
 
+#define RTL8211E_INER_LINK_STAT 0x10
+
 #define RTL821x_EXT_PAGE_SELECT			0x1e
 #define RTL821x_PAGE_SELECT			0x1f
 

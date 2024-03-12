@@ -8,6 +8,11 @@
  * Copyright 1997 -- 2000 Martin Mares <mj@ucw.cz>
  */
 
+/******************************************************************
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation.
+******************************************************************/
+
 #include <linux/acpi.h>
 #include <linux/kernel.h>
 #include <linux/delay.h>
@@ -1214,6 +1219,15 @@ int pci_set_power_state(struct pci_dev *dev, pci_power_t state)
 }
 EXPORT_SYMBOL(pci_set_power_state);
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+static int pci_pmcap_exception(struct pci_dev *dev)
+{
+       if((dev->vendor == 0x8086) && (dev->device == 0x070b))
+               return 1;
+       return 0;
+}
+#endif
+
 /**
  * pci_choose_state - Choose the power state of a PCI device
  * @dev: PCI device to be suspended
@@ -1227,8 +1241,13 @@ pci_power_t pci_choose_state(struct pci_dev *dev, pm_message_t state)
 {
 	pci_power_t ret;
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+       if ((!pci_pmcap_exception(dev)) && (!pci_find_capability(dev, PCI_CAP_ID_PM)))
+               return PCI_D0;
+#else
 	if (!dev->pm_cap)
 		return PCI_D0;
+#endif
 
 	ret = platform_pci_choose_state(dev);
 	if (ret != PCI_POWER_ERROR)
@@ -2391,6 +2410,26 @@ EXPORT_SYMBOL(pci_wake_from_d3);
 static pci_power_t pci_target_state(struct pci_dev *dev, bool wakeup)
 {
 	pci_power_t target_state = PCI_D3hot;
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	unsigned int id;
+
+	intelce_get_soc_info(&id, NULL);
+
+	if (CE2600_SOC_DEVICE_ID == id) {
+		if (((PCI_VENDOR_ID_INTEL == dev->vendor) && (CE2600_SOC_DEVICE_ID == dev->device)) ||
+			((PCI_VENDOR_ID_INTEL == dev->vendor) && (PCI_DEVICE_ID_AVM_B1 == dev->device)) ||
+			((PCI_VENDOR_ID_INTEL == dev->vendor) && (INTELCE_EMMC_PCI_DEVICE_ID == dev->device)) ||
+			((PCI_VENDOR_ID_INTEL == dev->vendor) && (INTELCE_SFLASH_PCI_DEVICE_ID == dev->device)) ||
+			((PCI_VENDOR_ID_INTEL == dev->vendor) && (INTELCE_GPIO_PCI_DEVICE_ID == dev->device)) ||
+			((PCI_VENDOR_ID_INTEL == dev->vendor) && (INTELCE_CP_TOP_PCI_DEVICE_ID == dev->device)) ||
+			((PCI_VENDOR_ID_INTEL == dev->vendor) && (INTELCE_DOCSIS_PCI_DEVICE_ID == dev->device)) ||
+			((PCI_VENDOR_ID_INTEL == dev->vendor) && (INTELCE_DOCSIS_DMA_PCI_DEVICE_ID == dev->device)) ||
+			((PCI_VENDOR_ID_INTEL == dev->vendor) && (INTELCE_L2_SWITCH_PCI_DEVICE_ID == dev->device)) ||
+			((PCI_VENDOR_ID_INTEL == dev->vendor) && (INTELCE_HWMUTEX_PCI_DEVICE_ID == dev->device))) {
+			return PCI_D0;
+		}
+	}
+#endif
 
 	if (platform_pci_power_manageable(dev)) {
 		/*

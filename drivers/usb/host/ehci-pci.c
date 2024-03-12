@@ -5,6 +5,11 @@
  * Copyright (c) 2000-2004 by David Brownell
  */
 
+/******************************************************************
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation.
+******************************************************************/
+
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -93,6 +98,16 @@ static int ehci_pci_setup(struct usb_hcd *hcd)
 
 	ehci->caps = hcd->regs;
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	/*
+	 * CE5300 USB controller has some extensions similar with Moorestown
+	 * such as host mode control, device speed report and power management.
+	 * So set ehci->has_hostpc to utilize the support code for Moorestown.
+	*/
+	if((pdev->device == 0x101) && (pdev->revision >= 0x6))
+		ehci->has_hostpc = 1;
+#endif
+
 	/*
 	 * ehci_init() causes memory for DMA transfers to be
 	 * allocated.  Thus, any vendor-specific workarounds based on
@@ -144,8 +159,12 @@ static int ehci_pci_setup(struct usb_hcd *hcd)
 			hcd->has_tt = 1;
 		break;
 	case PCI_VENDOR_ID_TDI:
-		if (pdev->device == PCI_DEVICE_ID_TDI_EHCI)
+		if (pdev->device == PCI_DEVICE_ID_TDI_EHCI) {
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+			ehci->has_tdi_phy_lpm = 0;
+#endif
 			hcd->has_tt = 1;
+		}
 		break;
 	case PCI_VENDOR_ID_AMD:
 		/* AMD PLL quirk */

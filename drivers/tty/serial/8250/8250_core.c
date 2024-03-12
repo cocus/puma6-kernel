@@ -40,6 +40,11 @@
 
 #include <asm/irq.h>
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+#include <linux/pci.h>
+#define CE2600_SERIAL_8250_NR_UARTS 2
+#endif
+
 #include "8250.h"
 
 /*
@@ -1166,11 +1171,19 @@ EXPORT_SYMBOL(serial8250_unregister_port);
 static int __init serial8250_init(void)
 {
 	int ret;
-
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	uint32_t id;
+#endif
 	if (nr_uarts == 0)
 		return -ENODEV;
 
 	serial8250_isa_init_ports();
+
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	intelce_get_soc_info(&id, NULL);
+	if(CE2600_SOC_DEVICE_ID == id)
+		nr_uarts = CE2600_SERIAL_8250_NR_UARTS;
+#endif
 
 	pr_info("Serial: 8250/16550 driver, %d ports, IRQ sharing %sabled\n",
 		nr_uarts, share_irqs ? "en" : "dis");

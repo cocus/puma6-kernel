@@ -10,6 +10,7 @@ obj-$(CONFIG_PCI)		+= access.o bus.o probe.o host-bridge.o \
 obj-$(CONFIG_PCI)		+= pcie/
 
 ifdef CONFIG_PCI
+obj-$(CONFIG_X86_INTEL_CE_GEN3) += pci-intelce_pm.o
 obj-$(CONFIG_PROC_FS)		+= proc.o
 obj-$(CONFIG_SYSFS)		+= slot.o
 obj-$(CONFIG_ACPI)		+= pci-acpi.o

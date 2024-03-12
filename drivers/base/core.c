@@ -8,6 +8,11 @@
  * Copyright (c) 2006 Novell, Inc.
  */
 
+/******************************************************************
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation.
+******************************************************************/
+
 #include <linux/acpi.h>
 #include <linux/cpufreq.h>
 #include <linux/device.h>
@@ -2904,7 +2909,11 @@ static struct device *prev_device(struct klist_iter *i)
 	return dev;
 }
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+struct device *next_device(struct klist_iter *i)
+#else
 static struct device *next_device(struct klist_iter *i)
+#endif
 {
 	struct klist_node *n = klist_next(i);
 	struct device *dev = NULL;

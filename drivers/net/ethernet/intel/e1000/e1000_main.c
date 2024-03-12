@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0
 /* Copyright(c) 1999 - 2006 Intel Corporation. */
 
+/*******************************************************************************
+  Includes Intel Corporation's changes/modifications dated: 02/2012.
+  Changed/modified portions - Copyright @ 2012, Intel Corporation.
+*******************************************************************************/
+
 #include "e1000.h"
 #include <net/ip6_checksum.h>
 #include <linux/io.h>
@@ -8,6 +13,14 @@
 #include <linux/bitops.h>
 #include <linux/if_vlan.h>
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+static const char *phy_mode_name[] = {
+"Real Phy Mode",
+"Internal Fake Phy Mode",
+"External Fake Phy Mode",
+"Invalid Phy Mode",
+};
+#endif
 char e1000_driver_name[] = "e1000";
 static char e1000_driver_string[] = "Intel(R) PRO/1000 Network Driver";
 #define DRV_VERSION "7.3.21-k8-NAPI"
@@ -680,10 +693,12 @@ void e1000_reset(struct e1000_adapter *adapter)
 	e1000_reset_hw(hw);
 	if (hw->mac_type >= e1000_82544)
 		ew32(WUC, 0);
+	printk("reset 1\n");
 
 	if (e1000_init_hw(hw))
 		e_dev_err("Hardware Error\n");
 	e1000_update_mng_vlan(adapter);
+	printk("e1000_reset 2\n");
 
 	/* if (adapter->hwflags & HWFLAGS_PHY_PWR_BIT) { */
 	if (hw->mac_type >= e1000_82544 &&
@@ -700,11 +715,15 @@ void e1000_reset(struct e1000_adapter *adapter)
 
 	/* Enable h/w to recognize an 802.1Q VLAN Ethernet packet */
 	ew32(VET, ETHERNET_IEEE_VLAN_TYPE);
+	printk("e1000_reset 3\n");
 
 	e1000_reset_adaptive(hw);
+	printk("e1000_reset 4\n");
 	e1000_phy_get_info(hw, &adapter->phy_info);
+	printk("e1000_reset 5\n");
 
 	e1000_release_manageability(adapter);
+	printk("e1000_reset 6\n");
 }
 
 /* Dump the eeprom for users having checksum issues */
@@ -717,6 +736,11 @@ static void e1000_dump_eeprom(struct e1000_adapter *adapter)
 	int i;
 	u16 csum_old, csum_new = 0;
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	if (adapter->hw.mac_type == e1000_ce4100)
+		eeprom.len = EEPROM_CE4100_FAKE_LENGTH;
+	else
+#endif
 	eeprom.len = ops->get_eeprom_len(netdev);
 	eeprom.offset = 0;
 
@@ -847,6 +871,58 @@ static const struct net_device_ops e1000_netdev_ops = {
 	.ndo_set_features	= e1000_set_features,
 };
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+static enum phy_mode g_phy_mode = INVALID_PHY;
+
+int set_gmac_phy_mode(int mode)
+{
+	g_phy_mode = (enum phy_mode)mode;
+	return 0;
+}
+
+static enum phy_mode  detect_phy_mode(void)
+{
+	u32 phy_base; /* L2 switch bar 0 */
+	u8 __iomem *virt_base;
+	u32 reg_val; /* slave config register */
+	struct pci_dev *pdev;
+	enum phy_mode ret = REAL_PHY;
+
+	pdev = pci_get_device(0x8086, 0x08BD, NULL);
+	if(!pdev)
+		return ret;
+
+	pci_read_config_dword(pdev, 0x10, &phy_base);
+	pci_dev_put(pdev);
+
+	virt_base = ioremap(phy_base, 256 * 1024);
+	if(!virt_base)
+		return ret;
+
+	reg_val = readl(virt_base + 0x3A004);
+	iounmap(virt_base);
+
+	reg_val = (reg_val & 0b1011);
+
+    switch (reg_val) {
+		case 0b0000:
+		case 0b1000:
+	        ret = FAKE_PHY_EXTERNAL;
+			printk("GMUX setting: GMAC0 is connected to external switch (RGMII0)\n");
+			break;
+	    case 0b1011:
+			ret = FAKE_PHY_INTERNAL;
+			printk("GMUX setting: GMAC0 is connected to internal switch (RGMII0)\n");
+			break;
+		case 0b1001:
+		case 0b1010:
+		default:
+			break;
+	}
+	return ret;
+}
+#endif
+
 /**
  * e1000_init_hw_struct - initialize members of hw struct
  * @adapter: board private struct
@@ -862,13 +938,28 @@ static int e1000_init_hw_struct(struct e1000_adapter *adapter,
 				struct e1000_hw *hw)
 {
 	struct pci_dev *pdev = adapter->pdev;
-
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	uint32_t socid;
+#endif
 	/* PCI config space info */
 	hw->vendor_id = pdev->vendor;
 	hw->device_id = pdev->device;
 	hw->subsystem_vendor_id = pdev->subsystem_vendor;
 	hw->subsystem_id = pdev->subsystem_device;
 	hw->revision_id = pdev->revision;
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	if (INVALID_PHY == g_phy_mode) {
+		intelce_get_soc_info(&socid, NULL);
+		if (CE2600_SOC_DEVICE_ID == socid) {
+			hw->phy_mode = detect_phy_mode();
+		} else {
+			hw->phy_mode = REAL_PHY;
+		}
+	} else {
+		hw->phy_mode = g_phy_mode;
+	}
+	printk("GBE working in %s\n", phy_mode_name[hw->phy_mode & 0x3]);
+#endif
 
 	pci_read_config_word(pdev, PCI_COMMAND, &hw->pci_cmd_word);
 
@@ -996,6 +1087,7 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	err = e1000_init_hw_struct(adapter, hw);
 	if (err)
 		goto err_sw_init;
+	printk("probe 1\n");
 
 	/* there is a workaround being applied below that limits
 	 * 64-bit DMA addresses to 64-bit hardware.  There are some
@@ -1012,9 +1104,12 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 			goto err_dma;
 		}
 	}
+	printk("probe 2\n");
 
 	netdev->netdev_ops = &e1000_netdev_ops;
 	e1000_set_ethtool_ops(netdev);
+	printk("probe 3\n");
+
 	netdev->watchdog_timeo = 5 * HZ;
 	netif_napi_add(netdev, &adapter->napi, e1000_clean, 64);
 
@@ -1023,6 +1118,7 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	adapter->bd_number = cards_found;
 
 	/* setup the private structure */
+	printk("probe 4\n");
 
 	err = e1000_sw_init(adapter);
 	if (err)
@@ -1037,6 +1133,7 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		if (!hw->ce4100_gbe_mdio_base_virt)
 			goto err_mdio_ioremap;
 	}
+	printk("probe 5\n");
 
 	if (hw->mac_type >= e1000_82543) {
 		netdev->hw_features = NETIF_F_SG |
@@ -1075,6 +1172,8 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	netdev->min_mtu = ETH_ZLEN - ETH_HLEN;
 	netdev->max_mtu = MAX_JUMBO_FRAME_SIZE - (ETH_HLEN + ETH_FCS_LEN);
 
+	printk("probe 6\n");
+
 	adapter->en_mng_pt = e1000_enable_mng_pass_thru(hw);
 
 	/* initialize eeprom parameters */
@@ -1082,12 +1181,14 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		e_err(probe, "EEPROM initialization failed\n");
 		goto err_eeprom;
 	}
+	printk("probe 7\n");
 
 	/* before reading the EEPROM, reset the controller to
 	 * put the device in a known good starting state
 	 */
 
 	e1000_reset_hw(hw);
+	printk("probe 8\n");
 
 	/* make sure the EEPROM is good */
 	if (e1000_validate_eeprom_checksum(hw) < 0) {
@@ -1106,12 +1207,15 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		if (e1000_read_mac_addr(hw))
 			e_err(probe, "EEPROM Read Error\n");
 	}
+	printk("probe 9\n");
+
 	/* don't block initialization here due to bad MAC address */
 	memcpy(netdev->dev_addr, hw->mac_addr, netdev->addr_len);
 
 	if (!is_valid_ether_addr(netdev->dev_addr))
 		e_err(probe, "Invalid MAC Address\n");
 
+	printk("probe 10\n");
 
 	INIT_DELAYED_WORK(&adapter->watchdog_task, e1000_watchdog);
 	INIT_DELAYED_WORK(&adapter->fifo_stall_task,
@@ -1120,6 +1224,8 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	INIT_WORK(&adapter->reset_task, e1000_reset_task);
 
 	e1000_check_options(adapter);
+	printk("probe 11\n");
+
 
 	/* Initial Wake on LAN setting
 	 * If APM wake is enabled in the EEPROM,
@@ -1183,6 +1289,7 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	/* initialize the wol settings based on the eeprom settings */
 	adapter->wol = adapter->eeprom_wol;
 	device_set_wakeup_enable(&adapter->pdev->dev, adapter->wol);
+	printk("probe 12\n");
 
 	/* Auto detect PHY address */
 	if (hw->mac_type == e1000_ce4100) {
@@ -1198,18 +1305,24 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 			goto err_eeprom;
 	}
 
+	printk("probe 13\n");
+
 	/* reset the hardware with the new settings */
 	e1000_reset(adapter);
+
+	printk("probe 14\n");
+
 
 	strcpy(netdev->name, "eth%d");
 	err = register_netdev(netdev);
 	if (err)
 		goto err_register;
+	printk("probe 15\n");
 
 	e1000_vlan_filter_on_off(adapter, false);
 
 	/* print bus type/speed/width info */
-	e_info(probe, "(PCI%s:%dMHz:%d-bit) %pM\n",
+	printk("(PCI%s:%dMHz:%d-bit) %pM\n",
 	       ((hw->bus_type == e1000_bus_type_pcix) ? "-X" : ""),
 	       ((hw->bus_speed == e1000_bus_speed_133) ? 133 :
 		(hw->bus_speed == e1000_bus_speed_120) ? 120 :
@@ -1220,6 +1333,7 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	/* carrier off reporting is important to ethtool even BEFORE open */
 	netif_carrier_off(netdev);
+	printk("probe 16\n");
 
 	e_info(probe, "Intel(R) PRO/1000 Network Connection\n");
 
@@ -1228,6 +1342,8 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 err_register:
 err_eeprom:
+	printk("probe 17\n");
+
 	e1000_phy_hw_reset(hw);
 
 	if (hw->flash_address)
@@ -1237,14 +1353,21 @@ err_eeprom:
 err_dma:
 err_sw_init:
 err_mdio_ioremap:
+	printk("probe 18\n");
+
 	iounmap(hw->ce4100_gbe_mdio_base_virt);
 	iounmap(hw->hw_addr);
 err_ioremap:
+	printk("probe 19\n");
+
 	disable_dev = !test_and_set_bit(__E1000_DISABLED, &adapter->flags);
 	free_netdev(netdev);
 err_alloc_etherdev:
+	printk("probe 20\n");
+
 	pci_release_selected_regions(pdev, bars);
 err_pci_reg:
+	printk("probe 21\n");
 	if (!adapter || disable_dev)
 		pci_disable_device(pdev);
 	return err;
@@ -2435,10 +2558,39 @@ static void e1000_watchdog(struct work_struct *work)
 	struct net_device *netdev = adapter->netdev;
 	struct e1000_tx_ring *txdr = adapter->tx_ring;
 	u32 link, tctl;
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	u16 link_up;
+	s32 ret_val;
 
+	/*
+	* Test the PHY for link status on Intel CE SoC MAC.
+	* If the link status is different than the last link status stored
+	* in the adapter->hw structure, then set hw->get_link_status = 1
+	*/
+	ret_val = e1000_read_phy_reg(&adapter->hw, PHY_STATUS, &link_up);
+	ret_val = e1000_read_phy_reg(&adapter->hw, PHY_STATUS, &link_up);
+	if (ret_val)
+		pr_info("Link status detection from PHY failed!\n");
+
+	link_up = ((link_up & MII_SR_LINK_STATUS) != 0);
+	if(link_up != adapter->hw.cegbe_is_link_up)
+		adapter->hw.get_link_status = true;
+	else
+		adapter->hw.get_link_status = false;
+#endif
 	link = e1000_has_link(adapter);
 	if ((netif_carrier_ok(netdev)) && link)
 		goto link_up;
+
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	if (hw->mac_type == e1000_ce4100) {
+		ret_val = e1000_read_phy_reg(&adapter->hw, PHY_STATUS, &link_up);
+		ret_val = e1000_read_phy_reg(&adapter->hw, PHY_STATUS, &link_up);
+		if (ret_val)
+			pr_info("Link status detection from PHY failed!\n");
+		link = ((link_up & MII_SR_LINK_STATUS) != 0);
+	}
+#endif
 
 	if (link) {
 		if (!netif_carrier_ok(netdev)) {
@@ -5133,6 +5285,40 @@ static int __e1000_shutdown(struct pci_dev *pdev, bool *enable_wake)
 	if (adapter->en_mng_pt)
 		*enable_wake = true;
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	/* enable WoL on the 8211E PHY */
+	if (*enable_wake == true) {
+		if (hw->phy_type == e1000_phy_8211e) {
+			u16 phy_wol = 0;
+			if (adapter->wol & E1000_WUFC_EX)
+				phy_wol |= 0x0400;
+			if (adapter->wol & E1000_WUFC_MC)
+				phy_wol |= 0x0200;
+			if (adapter->wol & E1000_WUFC_BC)
+				phy_wol |= 0x0100;
+			if (adapter->wol & E1000_WUFC_MAG)
+				phy_wol |= 0x1000;
+
+			/* Enable WoL for selected modes */
+			e1000_write_phy_reg(hw, 31, 0x0007);
+			e1000_write_phy_reg(hw, 30, 0x006d);
+			e1000_write_phy_reg(hw, 22, 0x9fff);
+			e1000_write_phy_reg(hw, 21, (u16) phy_wol);
+
+			/* Disable GMII/RGMII pad for power saving */
+			/* FIXME: for the S5 -> S0 wake to work, the BIOS
+			   needs to re-enable it */
+			// e1000_write_phy_reg(hw, 25, 0x0001);
+
+			/* Back to Page 0 */
+			e1000_write_phy_reg(hw, 31, 0x0000);
+
+			msleep(10);
+			e1000_phy_reset(hw);
+		}
+	}
+#endif
+
 	if (netif_running(netdev))
 		e1000_free_irq(adapter);
 
@@ -5195,6 +5381,27 @@ static int e1000_resume(struct pci_dev *pdev)
 		if (err)
 			return err;
 	}
+
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	/* disable WoL on the 8211E PHY */
+	if (hw->phy_type == e1000_phy_8211e) {
+
+		/* Disable WoL for selected modes */
+		e1000_write_phy_reg(hw, 31, 0x0007);
+		e1000_write_phy_reg(hw, 30, 0x006d);
+		e1000_write_phy_reg(hw, 22, 0x9fff);
+		e1000_write_phy_reg(hw, 21, 0x0000);
+
+		/* Reenable GMII/RGMII pad in case it was disabled */
+		// e1000_write_phy_reg(hw, 25, 0x0001);
+
+		/* Back to Page 0 */
+		e1000_write_phy_reg(hw, 31, 0x0000);
+		msleep(10);
+		e1000_phy_reset(hw);
+
+	}
+#endif
 
 	e1000_power_up_phy(adapter);
 	e1000_reset(adapter);

@@ -156,10 +156,24 @@ static const struct serial8250_config uart_config[] = {
 		.flags		= UART_CAP_FIFO | UART_NATSEMI,
 	},
 	[PORT_XSCALE] = {
+/*
+ * The following code is for Intel Media SOC Gen3 base support.
+*/
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+/*
+ * Since we have legal issue to use "Xscale", so change it to "GEN3_serial".
+*/
+		.name		= "GEN3_serial",
+		.fifo_size	= 64,
+		.tx_loadsz	= 64,
+		.fcr		= UART_FCR_ENABLE_FIFO | UART_FCR_DMA_SELECT | UART_FCR_R_TRIG_10,
+#else
+
 		.name		= "XScale",
 		.fifo_size	= 32,
 		.tx_loadsz	= 32,
 		.fcr		= UART_FCR_ENABLE_FIFO | UART_FCR_R_TRIG_10,
+#endif
 		.flags		= UART_CAP_FIFO | UART_CAP_UUE | UART_CAP_RTOIE,
 	},
 	[PORT_OCTEON] = {

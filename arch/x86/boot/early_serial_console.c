@@ -4,6 +4,9 @@
  * included from both the compressed kernel and the regular kernel.
  */
 #include "boot.h"
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+#include <asm/serial.h>
+#endif
 
 #define DEFAULT_SERIAL_PORT 0x3f8 /* ttyS0 */
 
@@ -31,9 +34,16 @@ static void early_serial_init(int port, int baud)
 	outb(0x3, port + LCR);	/* 8n1 */
 	outb(0, port + IER);	/* no interrupt */
 	outb(0, port + FCR);	/* no fifo */
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	outb(0x3, port + MCR);	/* DTR + RTS */
+
+	divisor	= BASE_BAUD / baud;
+#else
 	outb(0x3, port + MCR);	/* DTR + RTS */
 
 	divisor	= 115200 / baud;
+#endif
+
 	c = inb(port + LCR);
 	outb(c | DLAB, port + LCR);
 	outb(divisor & 0xff, port + DLL);
@@ -98,7 +108,10 @@ static void parse_earlyprintk(void)
 		early_serial_init(port, baud);
 }
 
+#ifndef CONFIG_X86_INTEL_CE_GEN3
 #define BASE_BAUD (1843200/16)
+#endif
+
 static unsigned int probe_baud(int port)
 {
 	unsigned char lcr, dll, dlh;

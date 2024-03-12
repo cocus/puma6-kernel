@@ -2443,11 +2443,14 @@ restart:
 			 * No need to check for activity unless the
 			 * frame is current.
 			 */
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+            if (live && (q.sitd->hw_results & SITD_ACTIVE(ehci))) {
+#else
 			if (((frame == now_frame) ||
 					(((frame + 1) & fmask) == now_frame))
 				&& live
 				&& (q.sitd->hw_results & SITD_ACTIVE(ehci))) {
-
+#endif
 				q_p = &q.sitd->sitd_next;
 				hw_p = &q.sitd->hw_next;
 				type = Q_NEXT_TYPE(ehci, q.sitd->hw_next);

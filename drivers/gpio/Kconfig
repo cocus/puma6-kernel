@@ -787,6 +787,12 @@ config GPIO_IT87
 	  To compile this driver as a module, choose M here: the module will
 	  be called gpio_it87
 
+config GPIO_INTELCE
+	tristate "INTELCE GPIO support"
+	depends on GPIOLIB && X86_INTEL_CE_GEN3
+	help
+	  Say yes here to support GPIO functionality of IntelCE soc I/O controller.
+
 config GPIO_SCH
 	tristate "Intel SCH/TunnelCreek/Centerton/Quark X1000 GPIO"
 	depends on (X86 || COMPILE_TEST) && PCI
