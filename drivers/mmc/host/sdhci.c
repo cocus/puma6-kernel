@@ -961,7 +961,7 @@ static u8 sdhci_calc_timeout(struct sdhci_host *host, struct mmc_command *cmd,
 	/* Unspecified timeout, assume max */
 	if (!data && !cmd->busy_timeout)
 		return 0xE;
-#ifdef CONFIG_ARCH_GEN3
+#ifdef CONFIG_X86_INTEL_CE_GEN3
 	if (!data)
 		return 0xE;
 #endif
@@ -1072,12 +1072,13 @@ static void sdhci_initialize_data(struct sdhci_host *host,
 static inline void sdhci_set_block_info(struct sdhci_host *host,
 					struct mmc_data *data)
 {
-#ifdef CONFIG_ARCH_GEN3
-	if (host->aep_enabled)
-		sdhci_writel(host, (data->blocks << 16) | 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	if (host->aep_enabled) {
+		sdhci_writel(host, (data->blocks << 16) |
 			SDHCI_MAKE_BLKSZ(7, data->blksz), SDHCI_BLOCK_SIZE);
-	return;
-#endif // CONFIG_ARCH_GEN3
+		return;
+	}
+#endif // CONFIG_X86_INTEL_CE_GEN3
 	/* Set the DMA boundary value and block size */
 	sdhci_writew(host,
 		     SDHCI_MAKE_BLKSZ(host->sdma_boundary, data->blksz),
@@ -1100,13 +1101,16 @@ static void sdhci_prepare_data(struct sdhci_host *host, struct mmc_command *cmd)
 {
 	struct mmc_data *data = cmd->data;
 
-#ifdef CONFIG_ARCH_GEN3
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+	u8 count;
+	bool too_big = false;
+
 	if (data || (cmd->flags & MMC_RSP_BUSY)) {
-                count = sdhci_calc_timeout(host, data);
+		count = sdhci_calc_timeout(host, cmd, &too_big);
 		if (host->aep_enabled)
 			count *= 2;
-                sdhci_writeb(host, count, SDHCI_TIMEOUT_CONTROL);
-        }
+		sdhci_writeb(host, count, SDHCI_TIMEOUT_CONTROL);
+	}
 #endif
 
 	sdhci_initialize_data(host, data);
@@ -1693,7 +1697,7 @@ static bool sdhci_send_command(struct sdhci_host *host, struct mmc_command *cmd)
 		flags |= SDHCI_CMD_DATA;
 
 
-#ifdef CONFIG_ARCH_GEN3
+#ifdef CONFIG_X86_INTEL_CE_GEN3
 	if (host->aep_enabled)
 	/* Wait max 50 ms */
 		timeout = 50;
@@ -2274,9 +2278,6 @@ void sdhci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 {
 	struct sdhci_host *host = mmc_priv(mmc);
 	u8 ctrl;
-#if defined(CONFIG_ARCH_GEN3)
-	u16 ctrl2;
-#endif
 
 	if (ios->power_mode == MMC_POWER_UNDEFINED)
 		return;
@@ -3236,7 +3237,7 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask, u32 *intmask_p)
 		sdhci_dumpregs(host);
 		return;
 	}
-#ifdef CONFIG_ARCH_GEN3
+#ifdef CONFIG_X86_INTEL_CE_GEN3
 	/* Manually return timeout to CMD8(SD_SEND_IF_COND) and CMD5(SD_IO_SEND_OP_COND),
 	 * as AEP doesn't support them
 	 */
@@ -3738,7 +3739,7 @@ static void sdhci_disable_irq_wakeups(struct sdhci_host *host)
 
 int sdhci_suspend_host(struct sdhci_host *host)
 {
-#ifdef CONFIG_ARCH_GEN3
+#ifdef CONFIG_X86_INTEL_CE_GEN3
 	if (host->quirks & SDHCI_QUIRK_NO_SUSPEND)
 	return 0;
 #endif
@@ -4242,10 +4243,6 @@ int sdhci_setup_host(struct sdhci_host *host)
 #if defined(CONFIG_X86_INTEL_CE_GEN3) && defined(CONFIG_HW_MUTEXES)
 	if(host->flags & SDHCI_SUPPORT_HW_MUTEX)
 		host->caps |= SDHCI_CAN_VDD_330;
-#endif
-
-#if defined(CONFIG_X86_INTEL_CE_GEN3) && (CONFIG_MACH_PUMA6)
-	host->caps |= SDHCI_CAN_VDD_330;
 #endif
 
 	if (host->quirks & SDHCI_QUIRK_FORCE_DMA)

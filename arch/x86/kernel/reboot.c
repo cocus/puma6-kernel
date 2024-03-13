@@ -630,7 +630,7 @@ static void native_machine_emergency_restart(void)
 /*
  * The following code is for Intel Media SOC Gen3 base support.
 */
-#ifdef CONFIG_ARCH_GEN3
+#ifdef CONFIG_X86_INTEL_CE_GEN3
 /*
  * Intel Media SOC Gen3 uses this specific method to reboot.
 */

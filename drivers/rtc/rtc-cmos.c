@@ -1024,7 +1024,7 @@ static int cmos_suspend(struct device *dev)
 
 	cmos_read_alarm(dev, &cmos->saved_wkalrm);
 
-#ifdef CONFIG_X86_INTEL_CE_GEN3
+#if defined(CONFIG_X86_INTEL_CE_GEN3) && !defined(CONFIG_HPET_EMULATE_RTC)
 	hpet_disable_legacy_int();
 #endif
 
@@ -1106,7 +1106,7 @@ static int __maybe_unused cmos_resume(struct device *dev)
 	tmp = cmos->suspend_ctrl;
 	cmos->suspend_ctrl = 0;
 
-#ifdef CONFIG_X86_INTEL_CE_GEN3
+#if defined(CONFIG_X86_INTEL_CE_GEN3) && !defined(CONFIG_HPET_EMULATE_RTC)
 	hpet_enable_legacy_int();
 #endif
 

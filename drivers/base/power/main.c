@@ -676,13 +676,6 @@ Out:
 	return error;
 }
 
-#ifdef CONFIG_X86_INTEL_CE_GEN3
-int resume_device(struct device *dev, pm_message_t state)
-{
-        return device_resume(dev,state,false);
-}
-#endif
-
 static bool is_async(struct device *dev)
 {
 	return dev->power.async_suspend && pm_async_enabled
@@ -1349,13 +1342,6 @@ static int dpm_noirq_suspend_devices(pm_message_t state)
 	return error;
 }
 
-#if CONFIG_X86_INTEL_CE_GEN3
-int suspend_device(struct device *dev, pm_message_t state)
-{
-       return  __device_suspend(dev, state, false);
-}
-#endif
-
 /**
  * dpm_suspend_noirq - Execute "noirq suspend" callbacks for all devices.
  * @state: PM transition of the system being carried out.
@@ -1755,6 +1741,22 @@ static int device_suspend(struct device *dev)
 
 	return __device_suspend(dev, pm_transition, false);
 }
+
+
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+int resume_device(struct device *dev, pm_message_t state)
+{
+	return device_resume(dev,state,false);
+}
+#endif
+
+#if CONFIG_X86_INTEL_CE_GEN3
+int suspend_device(struct device *dev, pm_message_t state)
+{
+       return  __device_suspend(dev, state, false);
+}
+#endif
+
 
 /**
  * dpm_suspend - Execute "suspend" callbacks for all non-sysdev devices.
