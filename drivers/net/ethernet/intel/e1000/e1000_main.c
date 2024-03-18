@@ -693,12 +693,10 @@ void e1000_reset(struct e1000_adapter *adapter)
 	e1000_reset_hw(hw);
 	if (hw->mac_type >= e1000_82544)
 		ew32(WUC, 0);
-	printk("reset 1\n");
 
 	if (e1000_init_hw(hw))
 		e_dev_err("Hardware Error\n");
 	e1000_update_mng_vlan(adapter);
-	printk("e1000_reset 2\n");
 
 	/* if (adapter->hwflags & HWFLAGS_PHY_PWR_BIT) { */
 	if (hw->mac_type >= e1000_82544 &&
@@ -715,15 +713,11 @@ void e1000_reset(struct e1000_adapter *adapter)
 
 	/* Enable h/w to recognize an 802.1Q VLAN Ethernet packet */
 	ew32(VET, ETHERNET_IEEE_VLAN_TYPE);
-	printk("e1000_reset 3\n");
 
 	e1000_reset_adaptive(hw);
-	printk("e1000_reset 4\n");
 	e1000_phy_get_info(hw, &adapter->phy_info);
-	printk("e1000_reset 5\n");
 
 	e1000_release_manageability(adapter);
-	printk("e1000_reset 6\n");
 }
 
 /* Dump the eeprom for users having checksum issues */
@@ -736,11 +730,6 @@ static void e1000_dump_eeprom(struct e1000_adapter *adapter)
 	int i;
 	u16 csum_old, csum_new = 0;
 
-#ifdef CONFIG_X86_INTEL_CE_GEN3
-	if (adapter->hw.mac_type == e1000_ce4100)
-		eeprom.len = EEPROM_CE4100_FAKE_LENGTH;
-	else
-#endif
 	eeprom.len = ops->get_eeprom_len(netdev);
 	eeprom.offset = 0;
 
@@ -759,6 +748,7 @@ static void e1000_dump_eeprom(struct e1000_adapter *adapter)
 	pr_err("/*********************/\n");
 	pr_err("Current EEPROM Checksum : 0x%04x\n", csum_old);
 	pr_err("Calculated              : 0x%04x\n", csum_new);
+	pr_err("LEN                     : 0x%04x\n", eeprom.len);
 
 	pr_err("Offset    Values\n");
 	pr_err("========  ======\n");
@@ -1087,7 +1077,6 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	err = e1000_init_hw_struct(adapter, hw);
 	if (err)
 		goto err_sw_init;
-	printk("probe 1\n");
 
 	/* there is a workaround being applied below that limits
 	 * 64-bit DMA addresses to 64-bit hardware.  There are some
@@ -1104,11 +1093,9 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 			goto err_dma;
 		}
 	}
-	printk("probe 2\n");
 
 	netdev->netdev_ops = &e1000_netdev_ops;
 	e1000_set_ethtool_ops(netdev);
-	printk("probe 3\n");
 
 	netdev->watchdog_timeo = 5 * HZ;
 	netif_napi_add(netdev, &adapter->napi, e1000_clean, 64);
@@ -1118,8 +1105,6 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	adapter->bd_number = cards_found;
 
 	/* setup the private structure */
-	printk("probe 4\n");
-
 	err = e1000_sw_init(adapter);
 	if (err)
 		goto err_sw_init;
@@ -1134,12 +1119,12 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 			goto err_sw_init;
 
 		hw->ce4100_gbe_config_base_virt =
-					ioremap(GBE_CONFIG_RAM_BASE, 0x200);
+					ioremap(GBE_CONFIG_RAM_BASE,
+					EEPROM_CE4100_FAKE_LENGTH * 4);
 
 		if (!hw->ce4100_gbe_config_base_virt)
 			goto err_mdio_ioremap;
 	}
-	printk("probe 5, mdio %px, config %px\n", hw->ce4100_gbe_mdio_base_virt, hw->ce4100_gbe_config_base_virt);
 
 	if (hw->mac_type >= e1000_82543) {
 		netdev->hw_features = NETIF_F_SG |
@@ -1178,8 +1163,6 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	netdev->min_mtu = ETH_ZLEN - ETH_HLEN;
 	netdev->max_mtu = MAX_JUMBO_FRAME_SIZE - (ETH_HLEN + ETH_FCS_LEN);
 
-	printk("probe 6\n");
-
 	adapter->en_mng_pt = e1000_enable_mng_pass_thru(hw);
 
 	/* initialize eeprom parameters */
@@ -1187,14 +1170,12 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		e_err(probe, "EEPROM initialization failed\n");
 		goto err_eeprom;
 	}
-	printk("probe 7\n");
 
 	/* before reading the EEPROM, reset the controller to
 	 * put the device in a known good starting state
 	 */
 
 	e1000_reset_hw(hw);
-	printk("probe 8\n");
 
 	/* make sure the EEPROM is good */
 	if (e1000_validate_eeprom_checksum(hw) < 0) {
@@ -1219,7 +1200,6 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		if (e1000_read_mac_addr(hw))
 			e_err(probe, "EEPROM Read Error\n");
 	}
-	printk("probe 9\n");
 
 	/* don't block initialization here due to bad MAC address */
 	memcpy(netdev->dev_addr, hw->mac_addr, netdev->addr_len);
@@ -1227,7 +1207,6 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (!is_valid_ether_addr(netdev->dev_addr))
 		e_err(probe, "Invalid MAC Address\n");
 
-	printk("probe 10\n");
 
 	INIT_DELAYED_WORK(&adapter->watchdog_task, e1000_watchdog);
 	INIT_DELAYED_WORK(&adapter->fifo_stall_task,
@@ -1236,8 +1215,6 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	INIT_WORK(&adapter->reset_task, e1000_reset_task);
 
 	e1000_check_options(adapter);
-	printk("probe 11\n");
-
 
 	/* Initial Wake on LAN setting
 	 * If APM wake is enabled in the EEPROM,
@@ -1301,7 +1278,6 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	/* initialize the wol settings based on the eeprom settings */
 	adapter->wol = adapter->eeprom_wol;
 	device_set_wakeup_enable(&adapter->pdev->dev, adapter->wol);
-	printk("probe 12\n");
 
 	/* Auto detect PHY address */
 	if (hw->mac_type == e1000_ce4100) {
@@ -1317,24 +1293,18 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 			goto err_eeprom;
 	}
 
-	printk("probe 13\n");
-
 	/* reset the hardware with the new settings */
 	e1000_reset(adapter);
-
-	printk("probe 14\n");
-
 
 	strcpy(netdev->name, "eth%d");
 	err = register_netdev(netdev);
 	if (err)
 		goto err_register;
-	printk("probe 15\n");
 
 	e1000_vlan_filter_on_off(adapter, false);
 
 	/* print bus type/speed/width info */
-	printk("(PCI%s:%dMHz:%d-bit) %pM\n",
+	e_info(probe, "(PCI%s:%dMHz:%d-bit) %pM\n",
 	       ((hw->bus_type == e1000_bus_type_pcix) ? "-X" : ""),
 	       ((hw->bus_speed == e1000_bus_speed_133) ? 133 :
 		(hw->bus_speed == e1000_bus_speed_120) ? 120 :
@@ -1345,7 +1315,6 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	/* carrier off reporting is important to ethtool even BEFORE open */
 	netif_carrier_off(netdev);
-	printk("probe 16\n");
 
 	e_info(probe, "Intel(R) PRO/1000 Network Connection\n");
 
@@ -1354,8 +1323,6 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 err_register:
 err_eeprom:
-	printk("probe 17\n");
-
 	e1000_phy_hw_reset(hw);
 
 	if (hw->flash_address)
@@ -1363,26 +1330,19 @@ err_eeprom:
 	kfree(adapter->tx_ring);
 	kfree(adapter->rx_ring);
 err_dma:
-	printk("probe in between 17-18\n");
 	iounmap(hw->ce4100_gbe_config_base_virt);
 
-	printk("probe 18\n");
 	iounmap(hw->ce4100_gbe_mdio_base_virt);
 err_mdio_ioremap:
 	iounmap(hw->hw_addr);
 err_sw_init:
 
 err_ioremap:
-	printk("probe 19\n");
-
 	disable_dev = !test_and_set_bit(__E1000_DISABLED, &adapter->flags);
 	free_netdev(netdev);
 err_alloc_etherdev:
-	printk("probe 20\n");
-
 	pci_release_selected_regions(pdev, bars);
 err_pci_reg:
-	printk("probe 21\n");
 	if (!adapter || disable_dev)
 		pci_disable_device(pdev);
 	return err;

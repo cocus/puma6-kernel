@@ -89,6 +89,11 @@ u16 e1000_igp_cable_length_table[IGP01E1000_AGC_LENGTH_TABLE_SIZE] = {
 static DEFINE_MUTEX(e1000_eeprom_lock);
 static DEFINE_SPINLOCK(e1000_phy_lock);
 
+#ifdef CONFIG_X86_INTEL_CE_GEN3
+static DEFINE_SPINLOCK(gbe_cru_lock);
+unsigned long cru_irqlocal;
+#endif
+
 /**
  * e1000_set_phy_type - Set the phy type member in the hw struct.
  * @hw: Struct containing variables accessed by shared code
@@ -388,23 +393,6 @@ void e1000_set_media_type(struct e1000_hw *hw)
 	}
 }
 
-#ifdef CONFIG_X86_INTEL_CE_GEN3
-static DEFINE_SPINLOCK(gbe_cru_lock);
-unsigned long cru_irqlocal;
-
-void gbe_cru_lock_acquire(unsigned long *irqlocal)
-{
-	spin_lock_irqsave(&gbe_cru_lock, *irqlocal);
-}
-EXPORT_SYMBOL(gbe_cru_lock_acquire);
-
-void gbe_cru_lock_release(unsigned long *irqlocal)
-{
-	spin_unlock_irqrestore(&gbe_cru_lock, *irqlocal);
-}
-EXPORT_SYMBOL(gbe_cru_lock_release);
-#endif
-
 /**
  * e1000_reset_hw - reset the hardware completely
  * @hw: Struct containing variables accessed by shared code
@@ -481,16 +469,11 @@ s32 e1000_reset_hw(struct e1000_hw *hw)
 		break;
 #ifdef CONFIG_X86_INTEL_CE_GEN3
 	case e1000_ce4100:
-	printk("reset_hw 1\n");
-		gbe_cru_lock_acquire(&cru_irqlocal);
-	printk("reset_hw 2\n");
-
+		spin_lock_irqsave(&gbe_cru_lock, cru_irqlocal);
 		ndelay(1000);
 		ew32(CTRL, (er32(CTRL) | E1000_CTRL_RST));
 		ndelay(1000);
-		gbe_cru_lock_release(&cru_irqlocal);
-	printk("reset_hw 3\n");
-
+		spin_unlock_irqrestore(&gbe_cru_lock, cru_irqlocal);
 		break;
 #endif
 	default:
@@ -581,7 +564,6 @@ s32 e1000_init_hw(struct e1000_hw *hw)
 	s32 ret_val;
 	u32 mta_size;
 	u32 ctrl_ext;
-	printk("e1000_init_hw 1\n");
 
 	/* Initialize Identification LED */
 	ret_val = e1000_id_led_init(hw);
@@ -589,18 +571,15 @@ s32 e1000_init_hw(struct e1000_hw *hw)
 		e_dbg("Error Initializing Identification LED\n");
 		return ret_val;
 	}
-	printk("e1000_init_hw 2\n");
 
 	/* Set the media type and TBI compatibility */
 	e1000_set_media_type(hw);
-	printk("e1000_init_hw 3\n");
 
 	/* Disabling VLAN filtering. */
 	e_dbg("Initializing the IEEE VLAN\n");
 	if (hw->mac_type < e1000_82545_rev_3)
 		ew32(VET, 0);
 	e1000_clear_vfta(hw);
-	printk("e1000_init_hw 4\n");
 
 	/* For 82542 (rev 2.0), disable MWI and put the receiver into reset */
 	if (hw->mac_type == e1000_82542_rev2_0) {
@@ -615,7 +594,6 @@ s32 e1000_init_hw(struct e1000_hw *hw)
 	 * Receive Address Registers (RARs 0 - 15).
 	 */
 	e1000_init_rx_addrs(hw);
-	printk("e1000_init_hw 5\n");
 
 	/* For 82542 (rev 2.0), take the receiver out of reset and enable MWI */
 	if (hw->mac_type == e1000_82542_rev2_0) {
@@ -625,7 +603,6 @@ s32 e1000_init_hw(struct e1000_hw *hw)
 		if (hw->pci_cmd_word & PCI_COMMAND_INVALIDATE)
 			e1000_pci_set_mwi(hw);
 	}
-	printk("e1000_init_hw 6\n");
 
 	/* Zero out the Multicast HASH table */
 	e_dbg("Zeroing the MTA\n");
@@ -637,7 +614,6 @@ s32 e1000_init_hw(struct e1000_hw *hw)
 		 */
 		E1000_WRITE_FLUSH();
 	}
-	printk("e1000_init_hw 7\n");
 
 	/* Set the PCI priority bit correctly in the CTRL register.  This
 	 * determines if the adapter gives priority to receives, or if it
@@ -648,7 +624,6 @@ s32 e1000_init_hw(struct e1000_hw *hw)
 		ctrl = er32(CTRL);
 		ew32(CTRL, ctrl | E1000_CTRL_PRIOR);
 	}
-	printk("e1000_init_hw 8\n");
 
 	switch (hw->mac_type) {
 	case e1000_82545_rev_3:
@@ -663,11 +638,9 @@ s32 e1000_init_hw(struct e1000_hw *hw)
 			e1000_pcix_set_mmrbc(hw, 2048);
 		break;
 	}
-	printk("e1000_init_hw 9\n");
 
 	/* Call a subroutine to configure the link and setup flow control. */
 	ret_val = e1000_setup_link(hw);
-	printk("e1000_init_hw 10, ret_val %d\n", ret_val);
 
 	/* Set the transmit descriptor write-back policy */
 	if (hw->mac_type > e1000_82544) {
@@ -677,7 +650,6 @@ s32 e1000_init_hw(struct e1000_hw *hw)
 		    E1000_TXDCTL_FULL_TX_DESC_WB;
 		ew32(TXDCTL, ctrl);
 	}
-	printk("e1000_init_hw 11\n");
 
 	/* Clear all of the statistics registers (clear on read).  It is
 	 * important that we do this after we have tried to establish link
@@ -685,7 +657,6 @@ s32 e1000_init_hw(struct e1000_hw *hw)
 	 * is no link.
 	 */
 	e1000_clear_hw_cntrs(hw);
-	printk("e1000_init_hw 12\n");
 
 	if (hw->device_id == E1000_DEV_ID_82546GB_QUAD_COPPER ||
 	    hw->device_id == E1000_DEV_ID_82546GB_QUAD_COPPER_KSP3) {
@@ -696,7 +667,6 @@ s32 e1000_init_hw(struct e1000_hw *hw)
 		ctrl_ext |= E1000_CTRL_EXT_RO_DIS;
 		ew32(CTRL_EXT, ctrl_ext);
 	}
-	printk("e1000_init_hw 13\n");
 
 	return ret_val;
 }
@@ -767,10 +737,7 @@ s32 e1000_setup_link(struct e1000_hw *hw)
 					    1, &eeprom_data);
 		if (ret_val) {
 			e_dbg("EEPROM Read Error\n");
-			printk("hardcoding fc\n");
-			hw->fc = E1000_FC_FULL;
-			goto skip;
-			//return -E1000_ERR_EEPROM;
+			return -E1000_ERR_EEPROM;
 		}
 		if ((eeprom_data & EEPROM_WORD0F_PAUSE_MASK) == 0)
 			hw->fc = E1000_FC_NONE;
@@ -780,7 +747,7 @@ s32 e1000_setup_link(struct e1000_hw *hw)
 		else
 			hw->fc = E1000_FC_FULL;
 	}
-skip:
+
 	/* We want to save off the original Flow Control configuration just
 	 * in case we get disconnected and then reconnected into a different
 	 * hub or switch with different Flow Control capabilities.
@@ -3021,7 +2988,6 @@ static u16 e1000_shift_in_mdi_bits(struct e1000_hw *hw)
 #ifdef CONFIG_X86_INTEL_CE_GEN3
 static s32 e1000_read_phy_reg_fake(struct e1000_hw *hw, u32 reg_addr, u16 *phy_data)
 {
-	printk("read_phy_fake %d, ptr %px\n", reg_addr, phy_data);
 	switch (reg_addr) {
 	case 0x00:
 		*phy_data = 0x3100;
@@ -3210,13 +3176,6 @@ static s32 e1000_read_phy_reg_ex(struct e1000_hw *hw, u32 reg_addr,
 	return E1000_SUCCESS;
 }
 
-#ifdef CONFIG_X86_INTEL_CE_GEN3
-static s32 e1000_write_phy_reg_fake(struct e1000_hw *hw, u32 reg_addr, u16 phy_data)
-{
-	return E1000_SUCCESS;
-}
-#endif
-
 /**
  * e1000_write_phy_reg - write a phy register
  *
@@ -3232,8 +3191,8 @@ s32 e1000_write_phy_reg(struct e1000_hw *hw, u32 reg_addr, u16 phy_data)
 	unsigned long flags;
 
 #ifdef CONFIG_X86_INTEL_CE_GEN3
-	//if(hw->phy_mode != REAL_PHY)
-	//	return e1000_write_phy_reg_fake(hw, reg_addr, phy_data);
+	if(hw->phy_mode != REAL_PHY)
+		return E1000_SUCCESS;
 #endif
 
 	spin_lock_irqsave(&e1000_phy_lock, flags);
@@ -3465,7 +3424,6 @@ static s32 e1000_detect_gig_phy(struct e1000_hw *hw)
 
 	hw->phy_id |= (u32)(phy_id_low & PHY_REVISION_MASK);
 	hw->phy_revision = (u32)phy_id_low & ~PHY_REVISION_MASK;
-	printk("CE4100 hw->phy_id is %d, phy_revision is %d, mac type is %d\n", hw->phy_id, hw->phy_revision, hw->mac_type);
 
 	switch (hw->mac_type) {
 	case e1000_82543:
@@ -3723,12 +3681,10 @@ s32 e1000_phy_get_info(struct e1000_hw *hw, struct e1000_phy_info *phy_info)
 		return -E1000_ERR_CONFIG;
 	}
 
-	printk("phy_get_info 1\n");
 	ret_val = e1000_read_phy_reg(hw, PHY_STATUS, &phy_data);
 	if (ret_val)
 		return ret_val;
 
-	printk("phy_get_info 2\n");
 	ret_val = e1000_read_phy_reg(hw, PHY_STATUS, &phy_data);
 	if (ret_val)
 		return ret_val;
@@ -3841,6 +3797,7 @@ s32 e1000_init_eeprom_params(struct e1000_hw *hw)
 		break;
 	case e1000_ce4100:
 		eeprom->type = e1000_eeprom_flash;
+		eeprom->word_size = EEPROM_CE4100_FAKE_LENGTH / 2;
 		break;
 	default:
 		break;
@@ -4190,75 +4147,9 @@ static s32 e1000_spi_eeprom_ready(struct e1000_hw *hw)
 s32 e1000_read_eeprom(struct e1000_hw *hw, u16 offset, u16 words, u16 *data)
 {
 	s32 ret;
-	printk("read_eeprom 0 offset %d, words %d, data %px\n", offset, words, data);
 	mutex_lock(&e1000_eeprom_lock);
-	printk("read_eeprom 1\n");
 	ret = e1000_do_read_eeprom(hw, offset, words, data);
-	printk("read_eeprom 2\n");
 	mutex_unlock(&e1000_eeprom_lock);
-	printk("read_eeprom 3\n");
-	return ret;
-}
-
-
-/*  write a word  */
-static int inline read_one_word(void  __iomem * ram_base_t, unsigned short offset, unsigned short *buf)
-{
-    int ret = 0;
-    volatile unsigned int ramBase;
-	volatile unsigned short * src;
-
-	if(!buf){
-		printk("Invalid buffer address!\n");
-		return -EINVAL;
-	}
-	
-	if( offset > 0x3f)
-	{
-		printk("invalid offset number: %x\n", offset);
-		return -EINVAL;
-	}
-
-	// translate the address from eeporm address (in word) into the flash address (in byte);
-	offset<<=1;
-
-	ramBase = (volatile unsigned int)ram_base_t;
-	src = (volatile unsigned short *)(ramBase + (unsigned int)offset);
-	*buf = *src;
-    
-	return ret;
-}
-/* = = = = = = = = = = = = = = = = = = = = == = = = = = = = = = = = = = = = = = = = = */
-/*!  \brief Read GbE configuration data from RAM
- *
- *   Read  configuration data from RAM 
- *
- *     @param[in] ram_base_t           the ram base address used to store the configuration data
- *     @param[in] offset_t           offset address in the configuration data. 
- *     @param[in] count              totol numbers of word to be read  
- *     @param[out] buf_t             buffer of returned data   
- *     @return  logical true if successful
- *              logical false if failed for some reason.
- */
-
-static int inline gbe_config_read_words(void  __iomem * ram_base_t, unsigned short offset_t, unsigned short count, unsigned short *buf_t)
-{
-	int ret = 0 ;
-	unsigned short i, offset, * buf;
-
-	if( (count + offset_t - 1 ) > 0x3f){
-		printk("Invalid words number, eeprom space limited to 0x3f word size\n");
-	}
-
-	offset = offset_t;
-	buf = buf_t;	
-
-	for(i=0;i<count;i++){
-		read_one_word(ram_base_t, offset, buf);
-		offset ++;
-		buf ++;
-	}
-	
 	return ret;
 }
 
@@ -4280,11 +4171,11 @@ static s32 e1000_do_read_eeprom(struct e1000_hw *hw, u16 offset, u16 words,
 	}
 
 	if (hw->mac_type == e1000_ce4100) {
-		/*GBE_CONFIG_FLASH_READ(GBE_CONFIG_BASE_VIRT, offset, words,
-				      data);*/
-		if(gbe_config_read_words(hw->ce4100_gbe_config_base_virt, offset,
-					  words, data))
-				return -E1000_ERR_EEPROM;
+		volatile void __iomem *addr = hw->ce4100_gbe_config_base_virt;
+		addr += offset * 2;
+		for (i = 0; i < words; i++) {
+			data[i] = readw(addr + i);
+		}
 		return E1000_SUCCESS;
 	}
 

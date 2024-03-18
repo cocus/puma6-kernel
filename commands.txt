@@ -12,8 +12,10 @@ TFTP custom:
 ip get bootp
 ip get bootp
 ord4 0xdf9fa004 0xB
-ord4 0xC80D0000 0x03000000
 tftp get 192.168.12.2 0x200000 bzImage
+
+ord4 0xC80D0000 0x03000000
+tftp get 192.168.100.8 0x200000 bzImage
 bootkernel -b 0x200000 "root=/dev/sda1"
 
 bootkernel -b 0x200000 "console=tty0 console=ttyS0,115200 memmap=exactmap memmap=128K@128K memmap=511M@1M rootdelay=3 root=/dev/sda1"
