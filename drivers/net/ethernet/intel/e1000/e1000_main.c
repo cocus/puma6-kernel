@@ -958,7 +958,7 @@ static int e1000_init_hw_struct(struct e1000_adapter *adapter,
 	} else {
 		hw->phy_mode = g_phy_mode;
 	}
-	printk("GBE working in %s\n", phy_mode_name[hw->phy_mode & 0x3]);
+	printk("GBE working in %s (hw->phy_mode = %d, g_phy_mode %d)\n", phy_mode_name[hw->phy_mode & 0x3], hw->phy_mode, g_phy_mode);
 #endif
 
 	pci_read_config_word(pdev, PCI_COMMAND, &hw->pci_cmd_word);
@@ -1131,9 +1131,15 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 						pci_resource_len(pdev, BAR_1));
 
 		if (!hw->ce4100_gbe_mdio_base_virt)
+			goto err_sw_init;
+
+		hw->ce4100_gbe_config_base_virt =
+					ioremap(GBE_CONFIG_RAM_BASE, 0x200);
+
+		if (!hw->ce4100_gbe_config_base_virt)
 			goto err_mdio_ioremap;
 	}
-	printk("probe 5\n");
+	printk("probe 5, mdio %px, config %px\n", hw->ce4100_gbe_mdio_base_virt, hw->ce4100_gbe_config_base_virt);
 
 	if (hw->mac_type >= e1000_82543) {
 		netdev->hw_features = NETIF_F_SG |
@@ -1201,7 +1207,13 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		 * interface after manually setting a hw addr using
 		 * `ip set address`
 		 */
-		memset(hw->mac_addr, 0, netdev->addr_len);
+		//memset(hw->mac_addr, 0, netdev->addr_len);
+		hw->mac_addr[0] = 0xc0;
+		hw->mac_addr[1] = 0xc0;
+		hw->mac_addr[2] = 0xca;
+		hw->mac_addr[3] = 0xfe;
+		hw->mac_addr[4] = 0xde;
+		hw->mac_addr[5] = 0xad;
 	} else {
 		/* copy the MAC address out of the EEPROM */
 		if (e1000_read_mac_addr(hw))
@@ -1351,12 +1363,15 @@ err_eeprom:
 	kfree(adapter->tx_ring);
 	kfree(adapter->rx_ring);
 err_dma:
-err_sw_init:
-err_mdio_ioremap:
-	printk("probe 18\n");
+	printk("probe in between 17-18\n");
+	iounmap(hw->ce4100_gbe_config_base_virt);
 
+	printk("probe 18\n");
 	iounmap(hw->ce4100_gbe_mdio_base_virt);
+err_mdio_ioremap:
 	iounmap(hw->hw_addr);
+err_sw_init:
+
 err_ioremap:
 	printk("probe 19\n");
 

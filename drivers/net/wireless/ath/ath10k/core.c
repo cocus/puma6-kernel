@@ -1143,6 +1143,7 @@ static int ath10k_fetch_cal_file(struct ath10k *ar)
 	/* pre-cal-<bus>-<id>.bin */
 	scnprintf(filename, sizeof(filename), "pre-cal-%s-%s.bin",
 		  ath10k_bus_str(ar->hif.bus), dev_name(ar->dev));
+	ath10k_err(ar, "precal filename should be '%s' on dir '%s'\n", filename, ATH10K_FW_DIR);
 
 	ar->pre_cal_file = ath10k_fetch_fw_file(ar, ATH10K_FW_DIR, filename);
 	if (!IS_ERR(ar->pre_cal_file))
@@ -1151,6 +1152,7 @@ static int ath10k_fetch_cal_file(struct ath10k *ar)
 	/* cal-<bus>-<id>.bin */
 	scnprintf(filename, sizeof(filename), "cal-%s-%s.bin",
 		  ath10k_bus_str(ar->hif.bus), dev_name(ar->dev));
+	ath10k_err(ar, "cal filename should be '%s' on dir '%s'\n", filename, ATH10K_FW_DIR);
 
 	ar->cal_file = ath10k_fetch_fw_file(ar, ATH10K_FW_DIR, filename);
 	if (IS_ERR(ar->cal_file))

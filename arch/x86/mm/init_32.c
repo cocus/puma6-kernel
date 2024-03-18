@@ -715,6 +715,8 @@ void __init setup_bootmem_allocator(void)
         memblock_reserve(GBE_CONFIG_RAM_BASE, GBE_CONFIG_DATA_LENGTH); //RAM reverve for Gbe mac
         memblock_reserve(ACPI_RAM_BASE, ACPI_DATA_LENGTH); //RAM reserve for ACPI data
         memblock_reserve(INTEL_8051_RAM_BASE, INTEL_8051_DATA_LENGTH);//RAM reserver for 8051 firmware
+		printk(KERN_INFO "  reserving GBE_CONFIG_RAM_BASE at %08x with %d bytes\n", GBE_CONFIG_RAM_BASE, GBE_CONFIG_DATA_LENGTH);
+
 #endif
 #endif
 }

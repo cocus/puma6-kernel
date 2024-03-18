@@ -1348,8 +1348,10 @@ struct e1000_hw {
 	u8 __iomem *flash_address;
 #ifdef CONFIG_X86_INTEL_CE_GEN3
 	volatile void __iomem *ce4100_gbe_mdio_base_virt;
+	volatile void __iomem *ce4100_gbe_config_base_virt;
 #else
 	void __iomem *ce4100_gbe_mdio_base_virt;
+	void __iomem *ce4100_gbe_config_base_virt;
 #endif
 	e1000_mac_type mac_type;
 	e1000_phy_type phy_type;

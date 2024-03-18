@@ -667,7 +667,7 @@ s32 e1000_init_hw(struct e1000_hw *hw)
 
 	/* Call a subroutine to configure the link and setup flow control. */
 	ret_val = e1000_setup_link(hw);
-	printk("e1000_init_hw 10\n");
+	printk("e1000_init_hw 10, ret_val %d\n", ret_val);
 
 	/* Set the transmit descriptor write-back policy */
 	if (hw->mac_type > e1000_82544) {
@@ -767,7 +767,10 @@ s32 e1000_setup_link(struct e1000_hw *hw)
 					    1, &eeprom_data);
 		if (ret_val) {
 			e_dbg("EEPROM Read Error\n");
-			return -E1000_ERR_EEPROM;
+			printk("hardcoding fc\n");
+			hw->fc = E1000_FC_FULL;
+			goto skip;
+			//return -E1000_ERR_EEPROM;
 		}
 		if ((eeprom_data & EEPROM_WORD0F_PAUSE_MASK) == 0)
 			hw->fc = E1000_FC_NONE;
@@ -777,7 +780,7 @@ s32 e1000_setup_link(struct e1000_hw *hw)
 		else
 			hw->fc = E1000_FC_FULL;
 	}
-
+skip:
 	/* We want to save off the original Flow Control configuration just
 	 * in case we get disconnected and then reconnected into a different
 	 * hub or switch with different Flow Control capabilities.
@@ -1040,9 +1043,8 @@ static s32 gbe_dhg_phy_setup(struct e1000_hw *hw)
 				ew32(CTL_AUX, ctrl_aux);
 				break;
 			case FAKE_PHY_EXTERNAL:
-				/* e1000_write_phy_reg_ex(hw, 0x1, 0xC003);
-				   e1000_write_phy_reg_ex(hw, 0x0, 0x96A1); // the external switch is configured in CEFDK
-				*/
+				e1000_write_phy_reg_ex(hw, 0x1, 0xC003);
+				e1000_write_phy_reg_ex(hw, 0x0, 0x96A1); // the external switch is configured in CEFDK
 				break;
 			case REAL_PHY:
 			default:
@@ -3019,6 +3021,7 @@ static u16 e1000_shift_in_mdi_bits(struct e1000_hw *hw)
 #ifdef CONFIG_X86_INTEL_CE_GEN3
 static s32 e1000_read_phy_reg_fake(struct e1000_hw *hw, u32 reg_addr, u16 *phy_data)
 {
+	printk("read_phy_fake %d, ptr %px\n", reg_addr, phy_data);
 	switch (reg_addr) {
 	case 0x00:
 		*phy_data = 0x3100;
@@ -3079,12 +3082,12 @@ s32 e1000_read_phy_reg(struct e1000_hw *hw, u32 reg_addr, u16 *phy_data)
 	u32 ret_val;
 	unsigned long flags;
 
-	spin_lock_irqsave(&e1000_phy_lock, flags);
-
 #ifdef CONFIG_X86_INTEL_CE_GEN3
-	//if(hw->phy_mode != REAL_PHY)
+	if(hw->phy_mode != REAL_PHY)
 		return e1000_read_phy_reg_fake(hw, reg_addr, phy_data);
 #endif
+
+	spin_lock_irqsave(&e1000_phy_lock, flags);
 
 	if ((hw->phy_type == e1000_phy_igp) &&
 	    (reg_addr > MAX_PHY_MULTI_PAGE_REG)) {
@@ -3228,12 +3231,13 @@ s32 e1000_write_phy_reg(struct e1000_hw *hw, u32 reg_addr, u16 phy_data)
 	u32 ret_val;
 	unsigned long flags;
 
-	spin_lock_irqsave(&e1000_phy_lock, flags);
-
 #ifdef CONFIG_X86_INTEL_CE_GEN3
 	//if(hw->phy_mode != REAL_PHY)
-		return e1000_write_phy_reg_fake(hw, reg_addr, phy_data);
+	//	return e1000_write_phy_reg_fake(hw, reg_addr, phy_data);
 #endif
+
+	spin_lock_irqsave(&e1000_phy_lock, flags);
+
 	if ((hw->phy_type == e1000_phy_igp) &&
 	    (reg_addr > MAX_PHY_MULTI_PAGE_REG)) {
 		ret_val = e1000_write_phy_reg_ex(hw, IGP01E1000_PHY_PAGE_SELECT,
@@ -3461,6 +3465,7 @@ static s32 e1000_detect_gig_phy(struct e1000_hw *hw)
 
 	hw->phy_id |= (u32)(phy_id_low & PHY_REVISION_MASK);
 	hw->phy_revision = (u32)phy_id_low & ~PHY_REVISION_MASK;
+	printk("CE4100 hw->phy_id is %d, phy_revision is %d, mac type is %d\n", hw->phy_id, hw->phy_revision, hw->mac_type);
 
 	switch (hw->mac_type) {
 	case e1000_82543:
@@ -3718,10 +3723,12 @@ s32 e1000_phy_get_info(struct e1000_hw *hw, struct e1000_phy_info *phy_info)
 		return -E1000_ERR_CONFIG;
 	}
 
+	printk("phy_get_info 1\n");
 	ret_val = e1000_read_phy_reg(hw, PHY_STATUS, &phy_data);
 	if (ret_val)
 		return ret_val;
 
+	printk("phy_get_info 2\n");
 	ret_val = e1000_read_phy_reg(hw, PHY_STATUS, &phy_data);
 	if (ret_val)
 		return ret_val;
@@ -3770,9 +3777,12 @@ s32 e1000_validate_mdi_setting(struct e1000_hw *hw)
 s32 e1000_init_eeprom_params(struct e1000_hw *hw)
 {
 	struct e1000_eeprom_info *eeprom = &hw->eeprom;
-	u32 eecd = er32(EECD);
+	u32 eecd = 0;
 	s32 ret_val = E1000_SUCCESS;
 	u16 eeprom_size;
+
+	if (hw->mac_type != e1000_ce4100)
+		eecd = er32(EECD);
 
 	switch (hw->mac_type) {
 	case e1000_82542_rev2_0:
@@ -3828,6 +3838,9 @@ s32 e1000_init_eeprom_params(struct e1000_hw *hw)
 				eeprom->address_bits = 6;
 			}
 		}
+		break;
+	case e1000_ce4100:
+		eeprom->type = e1000_eeprom_flash;
 		break;
 	default:
 		break;
@@ -4177,10 +4190,75 @@ static s32 e1000_spi_eeprom_ready(struct e1000_hw *hw)
 s32 e1000_read_eeprom(struct e1000_hw *hw, u16 offset, u16 words, u16 *data)
 {
 	s32 ret;
-
+	printk("read_eeprom 0 offset %d, words %d, data %px\n", offset, words, data);
 	mutex_lock(&e1000_eeprom_lock);
+	printk("read_eeprom 1\n");
 	ret = e1000_do_read_eeprom(hw, offset, words, data);
+	printk("read_eeprom 2\n");
 	mutex_unlock(&e1000_eeprom_lock);
+	printk("read_eeprom 3\n");
+	return ret;
+}
+
+
+/*  write a word  */
+static int inline read_one_word(void  __iomem * ram_base_t, unsigned short offset, unsigned short *buf)
+{
+    int ret = 0;
+    volatile unsigned int ramBase;
+	volatile unsigned short * src;
+
+	if(!buf){
+		printk("Invalid buffer address!\n");
+		return -EINVAL;
+	}
+	
+	if( offset > 0x3f)
+	{
+		printk("invalid offset number: %x\n", offset);
+		return -EINVAL;
+	}
+
+	// translate the address from eeporm address (in word) into the flash address (in byte);
+	offset<<=1;
+
+	ramBase = (volatile unsigned int)ram_base_t;
+	src = (volatile unsigned short *)(ramBase + (unsigned int)offset);
+	*buf = *src;
+    
+	return ret;
+}
+/* = = = = = = = = = = = = = = = = = = = = == = = = = = = = = = = = = = = = = = = = = */
+/*!  \brief Read GbE configuration data from RAM
+ *
+ *   Read  configuration data from RAM 
+ *
+ *     @param[in] ram_base_t           the ram base address used to store the configuration data
+ *     @param[in] offset_t           offset address in the configuration data. 
+ *     @param[in] count              totol numbers of word to be read  
+ *     @param[out] buf_t             buffer of returned data   
+ *     @return  logical true if successful
+ *              logical false if failed for some reason.
+ */
+
+static int inline gbe_config_read_words(void  __iomem * ram_base_t, unsigned short offset_t, unsigned short count, unsigned short *buf_t)
+{
+	int ret = 0 ;
+	unsigned short i, offset, * buf;
+
+	if( (count + offset_t - 1 ) > 0x3f){
+		printk("Invalid words number, eeprom space limited to 0x3f word size\n");
+	}
+
+	offset = offset_t;
+	buf = buf_t;	
+
+	for(i=0;i<count;i++){
+		read_one_word(ram_base_t, offset, buf);
+		offset ++;
+		buf ++;
+	}
+	
 	return ret;
 }
 
@@ -4189,14 +4267,6 @@ static s32 e1000_do_read_eeprom(struct e1000_hw *hw, u16 offset, u16 words,
 {
 	struct e1000_eeprom_info *eeprom = &hw->eeprom;
 	u32 i = 0;
-
-	return -E1000_ERR_EEPROM;
-
-	if (hw->mac_type == e1000_ce4100) {
-		GBE_CONFIG_FLASH_READ(GBE_CONFIG_BASE_VIRT, offset, words,
-				      data);
-		return E1000_SUCCESS;
-	}
 
 	/* A check for invalid values:  offset too large, too many words, and
 	 * not enough words.
@@ -4207,6 +4277,15 @@ static s32 e1000_do_read_eeprom(struct e1000_hw *hw, u16 offset, u16 words,
 		e_dbg("\"words\" parameter out of bounds. Words = %d,"
 		      "size = %d\n", offset, eeprom->word_size);
 		return -E1000_ERR_EEPROM;
+	}
+
+	if (hw->mac_type == e1000_ce4100) {
+		/*GBE_CONFIG_FLASH_READ(GBE_CONFIG_BASE_VIRT, offset, words,
+				      data);*/
+		if(gbe_config_read_words(hw->ce4100_gbe_config_base_virt, offset,
+					  words, data))
+				return -E1000_ERR_EEPROM;
+		return E1000_SUCCESS;
 	}
 
 	/* EEPROM's that don't use EERD to read require us to bit-bang the SPI
@@ -4758,7 +4837,7 @@ static s32 e1000_id_led_init(struct e1000_hw *hw)
 	u16 eeprom_data, i, temp;
 	const u16 led_mask = 0x0F;
 
-	if (hw->mac_type < e1000_82540) {
+	if (hw->mac_type < e1000_82540 || hw->mac_type == e1000_ce4100) {
 		/* Nothing to do */
 		return E1000_SUCCESS;
 	}
